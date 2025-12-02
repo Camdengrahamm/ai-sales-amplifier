@@ -7,23 +7,195 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Message classification types
+type MessageIntent = 'SALES_INTENT' | 'QUESTION' | 'PERSONAL' | 'LOW_EFFORT';
+
+interface RequestBody {
+  coach_id: string;
+  user_handle: string;
+  message: string;
+  source_channel?: string;
+  contact_id?: string;
+  location_id?: string;
+  contact_name?: string;
+  contact_email?: string;
+}
+
+interface AIResponse {
+  reply: string;
+  question_count: number;
+  tracking_link: string | null;
+  should_reply?: boolean;
+  intent?: MessageIntent;
+}
+
+// Classify the incoming message intent
+async function classifyMessage(message: string, apiKey: string): Promise<MessageIntent> {
+  try {
+    const classificationPrompt = `Classify this Instagram DM message into exactly one category. Reply with ONLY the category name, nothing else.
+
+Categories:
+- SALES_INTENT: User is asking about purchasing, pricing, enrollment, or showing buying intent
+- QUESTION: User is asking a genuine question about content, programs, or seeking information
+- PERSONAL: Casual/personal message like "hey bro", "what's up", friendship chat, not business related
+- LOW_EFFORT: Emoji-only, single word reactions like "🔥", "lol", "nice", "love this", "😂😂"
+
+Message: "${message}"
+
+Category:`;
+
+    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'google/gemini-2.5-flash',
+        messages: [{ role: 'user', content: classificationPrompt }],
+        max_tokens: 20,
+      }),
+    });
+
+    if (!response.ok) {
+      console.error('Classification API error:', response.status);
+      return 'QUESTION'; // Default to QUESTION on error
+    }
+
+    const data = await response.json();
+    const classification = data.choices?.[0]?.message?.content?.trim().toUpperCase() || 'QUESTION';
+    
+    // Validate it's one of our expected values
+    if (['SALES_INTENT', 'QUESTION', 'PERSONAL', 'LOW_EFFORT'].includes(classification)) {
+      return classification as MessageIntent;
+    }
+    return 'QUESTION';
+  } catch (error) {
+    console.error('Error classifying message:', error);
+    return 'QUESTION';
+  }
+}
+
+// Generate a short neutral response for personal/low-effort messages
+function getNeutralResponse(intent: MessageIntent, contactName?: string): string {
+  const name = contactName ? contactName.split(' ')[0] : '';
+  
+  if (intent === 'LOW_EFFORT') {
+    const responses = [
+      '🙌',
+      'Thanks! Let me know if you have any questions.',
+      '👊',
+    ];
+    return responses[Math.floor(Math.random() * responses.length)];
+  }
+  
+  if (intent === 'PERSONAL') {
+    const greeting = name ? `Hey ${name}! ` : 'Hey! ';
+    return `${greeting}Thanks for reaching out! If you have any questions about the program, I'm here to help. 🙌`;
+  }
+  
+  return '';
+}
+
 serve(async (req) => {
+  // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const { coach_id, user_handle, message, source_channel = "instagram" } = await req.json();
+    // Parse and validate request body
+    const body = await req.json() as Partial<RequestBody>;
     
-    console.log("AI Assistant request:", { coach_id, user_handle, source_channel });
+    const {
+      coach_id,
+      user_handle,
+      message,
+      source_channel = 'instagram',
+      contact_id,
+      location_id,
+      contact_name,
+      contact_email,
+    } = body;
 
+    // Validate required fields
+    if (!coach_id || !user_handle || !message) {
+      console.error('Missing required fields:', { coach_id: !!coach_id, user_handle: !!user_handle, message: !!message });
+      return new Response(
+        JSON.stringify({ error: 'Missing required fields: coach_id, user_handle, and message are required' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    console.log('AI Assistant request:', { 
+      coach_id, 
+      user_handle, 
+      source_channel,
+      contact_id,
+      location_id,
+      contact_name,
+      message_length: message.length 
+    });
+
+    // Initialize Supabase client
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const lovableApiKey = Deno.env.get('LOVABLE_API_KEY');
+    const lovableApiKey = Deno.env.get('LOVABLE_API_KEY')!;
     
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Get or create DM session
+    // Step 1: Classify the message intent
+    const intent = await classifyMessage(message, lovableApiKey);
+    console.log('Message classified as:', intent);
+
+    // Handle low-effort or personal messages with neutral responses
+    if (intent === 'LOW_EFFORT' || intent === 'PERSONAL') {
+      const neutralReply = getNeutralResponse(intent, contact_name);
+      
+      // Still track the session even for neutral responses
+      let { data: session } = await supabase
+        .from('dm_sessions')
+        .select('*')
+        .eq('coach_id', coach_id)
+        .eq('user_handle', user_handle)
+        .single();
+
+      if (!session) {
+        const { data: newSession } = await supabase
+          .from('dm_sessions')
+          .insert({
+            coach_id,
+            user_handle,
+            question_count: 1,
+            last_question_at: new Date().toISOString(),
+          })
+          .select()
+          .single();
+        session = newSession;
+      } else {
+        await supabase
+          .from('dm_sessions')
+          .update({ 
+            question_count: session.question_count + 1,
+            last_question_at: new Date().toISOString(),
+          })
+          .eq('id', session.id);
+      }
+
+      const response: AIResponse = {
+        reply: neutralReply,
+        question_count: session?.question_count || 1,
+        tracking_link: null,
+        should_reply: true,
+        intent,
+      };
+
+      return new Response(JSON.stringify(response), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Step 2: Get or create DM session
     let { data: session, error: sessionError } = await supabase
       .from('dm_sessions')
       .select('*')
@@ -43,47 +215,71 @@ serve(async (req) => {
         .single();
 
       if (createError) {
-        console.error("Error creating session:", createError);
-        throw createError;
+        console.error('Error creating session:', createError);
+        throw new Error('Failed to create DM session');
       }
       session = newSession;
     }
 
-    // Increment question count
-    const newQuestionCount = session.question_count + 1;
-    await supabase
+    // Step 3: Increment question count
+    const newQuestionCount = (session?.question_count || 0) + 1;
+    const { error: updateError } = await supabase
       .from('dm_sessions')
       .update({ 
         question_count: newQuestionCount,
         last_question_at: new Date().toISOString(),
       })
-      .eq('id', session.id);
+      .eq('id', session!.id);
 
-    // Get coach info
-    const { data: coach } = await supabase
+    if (updateError) {
+      console.error('Error updating session:', updateError);
+    }
+
+    // Step 4: Get coach info
+    const { data: coach, error: coachError } = await supabase
       .from('coaches')
       .select('name, brand_name')
       .eq('id', coach_id)
       .single();
 
-    // Retrieve relevant course content (embeddings)
-    const { data: embeddings } = await supabase
+    if (coachError || !coach) {
+      console.error('Error fetching coach:', coachError);
+      throw new Error('Coach not found');
+    }
+
+    const coachDisplayName = coach.brand_name || coach.name;
+
+    // Step 5: Retrieve relevant embeddings (top 5 chunks)
+    const { data: embeddings, error: embeddingsError } = await supabase
       .from('embeddings')
       .select('content_chunk')
       .eq('coach_id', coach_id)
-      .limit(3);
+      .limit(5);
+
+    if (embeddingsError) {
+      console.error('Error fetching embeddings:', embeddingsError);
+    }
 
     const courseContext = embeddings?.map(e => e.content_chunk).join('\n\n') || '';
+    const hasContent = courseContext.length > 0;
 
-    // Build system prompt
-    const systemPrompt = `You are an AI assistant for ${coach?.brand_name || coach?.name || 'a coach'}. 
-You help answer questions about their program using the following course content:
+    // Step 6: Build system prompt
+    const systemPrompt = `You are an AI assistant for ${coachDisplayName}. You help answer questions from potential customers via Instagram DM.
+
+${hasContent ? `Use the following course/program content as your knowledge base:
 
 ${courseContext}
 
-Be helpful, friendly, and professional. Keep responses concise but valuable.`;
+` : ''}Guidelines:
+- Be helpful, friendly, and conversational — this is a DM, not an email
+- Keep responses concise (2-4 sentences max unless more detail is needed)
+- Match the coach's tone and style
+- Never contradict the course content
+- If you don't know something, be honest and offer to connect them with the coach
+- Don't be overly salesy in early messages
+${intent === 'SALES_INTENT' ? '- The user seems interested in buying/enrolling — be helpful about next steps' : ''}`;
 
-    // Call Lovable AI
+    // Step 7: Generate AI response
     const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -102,43 +298,84 @@ Be helpful, friendly, and professional. Keep responses concise but valuable.`;
     if (!aiResponse.ok) {
       const errorText = await aiResponse.text();
       console.error('AI gateway error:', aiResponse.status, errorText);
+      
+      if (aiResponse.status === 429) {
+        return new Response(
+          JSON.stringify({ error: 'Rate limit exceeded. Please try again later.' }),
+          { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      if (aiResponse.status === 402) {
+        return new Response(
+          JSON.stringify({ error: 'AI service credits exhausted.' }),
+          { status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
       throw new Error('AI gateway error');
     }
 
     const aiData = await aiResponse.json();
-    let reply = aiData.choices[0].message.content;
+    let reply = aiData.choices?.[0]?.message?.content || 'Sorry, I couldn\'t generate a response. Please try again.';
 
-    // Get active offer for CTA
-    const { data: offers } = await supabase
-      .from('offers')
-      .select('*')
-      .eq('coach_id', coach_id)
-      .eq('is_active', true)
-      .limit(1);
+    // Step 8: Add CTA after 3+ questions if offer exists
+    let trackingLink: string | null = null;
 
-    const offer = offers?.[0];
-    let trackingLink = null;
+    if (newQuestionCount >= 3) {
+      const { data: offers } = await supabase
+        .from('offers')
+        .select('*')
+        .eq('coach_id', coach_id)
+        .eq('is_active', true)
+        .limit(1);
 
-    // Add CTA after 3+ questions
-    if (newQuestionCount >= 3 && offer) {
-      trackingLink = `${supabaseUrl.replace('/rest/v1', '')}/functions/v1/track/${offer.tracking_slug}`;
-      reply += `\n\nI break this down step-by-step in my full program. Here's the link to join:\n${trackingLink}`;
+      const offer = offers?.[0];
+
+      if (offer) {
+        // Build tracking link - derive base URL from SUPABASE_URL
+        const baseUrl = supabaseUrl.replace('/rest/v1', '').replace(/\/$/, '');
+        trackingLink = `${baseUrl}/functions/v1/track/${offer.tracking_slug}`;
+
+        // Append CTA to reply
+        const ctaMessages = [
+          `\n\nI cover this in detail in my full program. Ready to dive in? ${trackingLink}`,
+          `\n\nWant the complete breakdown? Check out my program here: ${trackingLink}`,
+          `\n\nI go much deeper on this in my course. Here's the link if you're ready: ${trackingLink}`,
+        ];
+        const ctaIndex = newQuestionCount % ctaMessages.length;
+        reply += ctaMessages[ctaIndex];
+      }
     }
 
-    return new Response(
-      JSON.stringify({
-        reply,
-        question_count: newQuestionCount,
-        tracking_link: trackingLink,
-      }),
-      {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      }
-    );
+    // Step 9: Build and return response
+    const response: AIResponse = {
+      reply,
+      question_count: newQuestionCount,
+      tracking_link: trackingLink,
+      should_reply: true,
+      intent,
+    };
+
+    console.log('AI Assistant response:', { 
+      question_count: newQuestionCount, 
+      has_tracking_link: !!trackingLink,
+      reply_length: reply.length,
+      intent,
+    });
+
+    return new Response(JSON.stringify(response), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+
   } catch (error) {
     console.error('Error in ai-assistant function:', error);
     return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }),
+      JSON.stringify({ 
+        error: error instanceof Error ? error.message : 'Unknown error occurred',
+        reply: 'Sorry, something went wrong. Please try again.',
+        question_count: 0,
+        tracking_link: null,
+        should_reply: false,
+      }),
       {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
