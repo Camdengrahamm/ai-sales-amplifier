@@ -1,5 +1,5 @@
 import { ReactNode, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Session, User } from "@supabase/supabase-js";
 import {
@@ -11,14 +11,108 @@ import {
   Settings,
   LogOut,
   Zap,
+  Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarProvider,
+  SidebarTrigger,
+  useSidebar,
+} from "@/components/ui/sidebar";
+import { NavLink } from "@/components/NavLink";
 
 interface LayoutProps {
   children: ReactNode;
 }
+
+const AppSidebar = ({ userRole, onSignOut }: { userRole: string | null; onSignOut: () => void }) => {
+  const { state } = useSidebar();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const collapsed = state === "collapsed";
+
+  const isAdmin = userRole === "admin";
+  
+  const navigation = [
+    { name: "Dashboard", href: "/", icon: LayoutDashboard, show: true },
+    { name: "Coaches", href: "/coaches", icon: Users, show: isAdmin },
+    { name: "Offers", href: "/offers", icon: Package, show: true },
+    { name: "Upload Course", href: "/upload", icon: Upload, show: !isAdmin },
+    { name: "Sales", href: "/sales", icon: DollarSign, show: true },
+    { name: "Payouts", href: "/payouts", icon: Wallet, show: true },
+    { name: "Settings", href: "/settings", icon: Settings, show: true },
+  ].filter((item) => item.show);
+
+  return (
+    <Sidebar collapsible="icon">
+      <SidebarContent>
+        <div className="p-4 border-b border-sidebar-border">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center shrink-0">
+              <Zap className="w-5 h-5 text-white" />
+            </div>
+            {!collapsed && (
+              <div className="min-w-0">
+                <h1 className="text-lg font-bold text-sidebar-foreground truncate">AI DM Sales</h1>
+                <p className="text-xs text-sidebar-foreground/60">
+                  {isAdmin ? "Admin Panel" : "Coach Dashboard"}
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <SidebarGroup>
+          <SidebarGroupLabel>Navigation</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {navigation.map((item) => {
+                const Icon = item.icon;
+                const isActive = location.pathname === item.href;
+
+                return (
+                  <SidebarMenuItem key={item.name}>
+                    <SidebarMenuButton asChild>
+                      <NavLink
+                        to={item.href}
+                        className="hover:bg-sidebar-accent/50"
+                        activeClassName="bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                      >
+                        <Icon className="w-5 h-5" />
+                        {!collapsed && <span>{item.name}</span>}
+                      </NavLink>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              })}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <div className="mt-auto p-4 border-t border-sidebar-border">
+          <Button
+            variant="ghost"
+            onClick={onSignOut}
+            className="w-full justify-start text-sidebar-foreground/80 hover:text-sidebar-accent-foreground hover:bg-sidebar-accent/50"
+          >
+            <LogOut className="w-5 h-5" />
+            {!collapsed && <span className="ml-2">Sign Out</span>}
+          </Button>
+        </div>
+      </SidebarContent>
+    </Sidebar>
+  );
+};
 
 const Layout = ({ children }: LayoutProps) => {
   const navigate = useNavigate();
@@ -101,75 +195,25 @@ const Layout = ({ children }: LayoutProps) => {
     return null;
   }
 
-  const isAdmin = userRole === "admin";
-  
-  const navigation = [
-    { name: "Dashboard", href: "/", icon: LayoutDashboard, show: true },
-    { name: "Offers", href: "/offers", icon: Package, show: true },
-    { name: "Upload Course", href: "/upload", icon: Upload, show: !isAdmin },
-    { name: "Sales", href: "/sales", icon: DollarSign, show: true },
-    { name: "Payouts", href: "/payouts", icon: Wallet, show: true },
-    { name: "Settings", href: "/settings", icon: Settings, show: true },
-  ].filter((item) => item.show);
-
   return (
-    <div className="min-h-screen bg-background flex">
-      {/* Sidebar */}
-      <aside className="w-64 bg-sidebar border-r border-sidebar-border flex flex-col">
-        <div className="p-6 border-b border-sidebar-border">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center">
-              <Zap className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <h1 className="text-lg font-bold text-sidebar-foreground">AI DM Sales</h1>
-              <p className="text-xs text-sidebar-foreground/60">
-                {isAdmin ? "Admin" : "Coach"}
-              </p>
-            </div>
-          </div>
+    <SidebarProvider>
+      <div className="min-h-screen flex w-full">
+        <AppSidebar userRole={userRole} onSignOut={handleSignOut} />
+        
+        <div className="flex-1 flex flex-col">
+          {/* Header with trigger */}
+          <header className="h-14 border-b bg-background flex items-center px-4 sticky top-0 z-10">
+            <SidebarTrigger className="lg:hidden" />
+            <div className="flex-1" />
+          </header>
+
+          {/* Main Content */}
+          <main className="flex-1 overflow-auto p-4 md:p-8">
+            {children}
+          </main>
         </div>
-
-        <nav className="flex-1 p-4 space-y-1">
-          {navigation.map((item) => {
-            const Icon = item.icon;
-            const isActive = window.location.pathname === item.href;
-            
-            return (
-              <button
-                key={item.name}
-                onClick={() => navigate(item.href)}
-                className={cn(
-                  "w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all",
-                  isActive
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "text-sidebar-foreground/80 hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground"
-                )}
-              >
-                <Icon className="w-5 h-5" />
-                {item.name}
-              </button>
-            );
-          })}
-        </nav>
-
-        <div className="p-4 border-t border-sidebar-border">
-          <Button
-            variant="ghost"
-            onClick={handleSignOut}
-            className="w-full justify-start text-sidebar-foreground/80 hover:text-sidebar-accent-foreground"
-          >
-            <LogOut className="w-5 h-5 mr-3" />
-            Sign Out
-          </Button>
-        </div>
-      </aside>
-
-      {/* Main Content */}
-      <main className="flex-1 overflow-auto">
-        <div className="p-8">{children}</div>
-      </main>
-    </div>
+      </div>
+    </SidebarProvider>
   );
 };
 
