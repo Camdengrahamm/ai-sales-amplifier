@@ -59,40 +59,31 @@ const Coaches = () => {
     }
 
     try {
-      // Create auth user
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: newCoach.email,
-        password: newCoach.password,
-        options: {
-          emailRedirectTo: `${window.location.origin}/`,
-        },
-      });
+      const { data: sessionData } = await supabase.auth.getSession();
+      
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-coach`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${sessionData.session?.access_token}`,
+          },
+          body: JSON.stringify({
+            name: newCoach.name,
+            email: newCoach.email,
+            password: newCoach.password,
+            brand_name: newCoach.brand_name,
+            commission_rate: newCoach.commission_rate,
+          }),
+        }
+      );
 
-      if (authError) throw authError;
-      if (!authData.user) throw new Error("Failed to create user");
+      const result = await response.json();
 
-      // Create coach profile
-      const { error: coachError } = await supabase
-        .from("coaches")
-        .insert({
-          user_id: authData.user.id,
-          name: newCoach.name,
-          email: newCoach.email,
-          brand_name: newCoach.brand_name || null,
-          default_commission_rate: parseFloat(newCoach.commission_rate),
-        });
-
-      if (coachError) throw coachError;
-
-      // Assign coach role
-      const { error: roleError } = await supabase
-        .from("user_roles")
-        .insert({
-          user_id: authData.user.id,
-          role: "coach",
-        });
-
-      if (roleError) throw roleError;
+      if (!response.ok) {
+        throw new Error(result.error || "Failed to create coach");
+      }
 
       toast.success("Coach created successfully!");
       setNewCoach({
