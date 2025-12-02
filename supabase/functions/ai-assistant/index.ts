@@ -104,26 +104,48 @@ serve(async (req) => {
   }
 
   try {
-    // Parse and validate request body
-    const body = await req.json() as Partial<RequestBody>;
-    
-    const {
-      coach_id,
-      user_handle,
-      message,
-      source_channel = 'instagram',
-      contact_id,
-      location_id,
-      contact_name,
-      contact_email,
-    } = body;
+    // Parse and validate request body - support both direct JSON and nested GHL payloads
+    const rawBody = await req.json();
+    console.log("Raw GHL body:", rawBody);
 
-    // Validate required fields
+    // Support both:
+    // - direct JSON (like curl test)
+    // - nested customData / data from GHL
+    const data = rawBody.customData ?? rawBody.data ?? rawBody;
+
+    const coach_id =
+      data.coach_id ?? data.coachId ?? data.coach ??
+      rawBody.coach_id ?? rawBody.coachId;
+
+    const user_handle =
+      data.user_handle ?? data.userHandle ?? data.instagramHandle ??
+      rawBody.user_handle ?? rawBody.userHandle;
+
+    const message =
+      data.message ?? data.last_inbound_message ?? data.lastMessage ??
+      rawBody.message;
+
+    // Default if not explicitly sent
+    const source_channel =
+      data.source_channel ?? data.sourceChannel ?? rawBody.source_channel ?? "instagram";
+
+    // Optional fields
+    const contact_id = data.contact_id ?? data.contactId ?? rawBody.contact_id;
+    const location_id = data.location_id ?? data.locationId ?? rawBody.location_id;
+    const contact_name = data.contact_name ?? data.contactName ?? rawBody.contact_name;
+    const contact_email = data.contact_email ?? data.contactEmail ?? rawBody.contact_email;
+
+    // Validation
     if (!coach_id || !user_handle || !message) {
-      console.error('Missing required fields:', { coach_id: !!coach_id, user_handle: !!user_handle, message: !!message });
+      console.error("Missing required fields in body:", rawBody);
       return new Response(
-        JSON.stringify({ error: 'Missing required fields: coach_id, user_handle, and message are required' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({
+          error: "Missing required fields: coach_id, user_handle, and message are required",
+        }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
       );
     }
 
