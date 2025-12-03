@@ -299,15 +299,18 @@ serve(async (req) => {
           .eq('id', session.id);
       }
 
-      const response: AIResponse = {
+      const finalPayload = {
         reply: neutralReply,
+        message: neutralReply, // Alias for GHL compatibility
         question_count: session?.question_count || 1,
         tracking_link: null,
         should_reply: true,
         intent,
       };
 
-      return new Response(JSON.stringify(response), {
+      console.log('FINAL RESPONSE TO GHL (neutral):', JSON.stringify(finalPayload, null, 2));
+
+      return new Response(JSON.stringify(finalPayload), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
@@ -464,35 +467,37 @@ ${intent === 'SALES_INTENT' ? '- The user seems interested in buying/enrolling â
     }
 
     // Step 9: Build and return response
-    const response: AIResponse = {
+    const finalPayload = {
       reply,
+      message: reply, // Alias for GHL compatibility
       question_count: newQuestionCount,
       tracking_link: trackingLink,
       should_reply: true,
       intent,
     };
 
-    console.log('AI Assistant response:', { 
-      question_count: newQuestionCount, 
-      has_tracking_link: !!trackingLink,
-      reply_length: reply.length,
-      intent,
-    });
+    console.log('FINAL RESPONSE TO GHL:', JSON.stringify(finalPayload, null, 2));
 
-    return new Response(JSON.stringify(response), {
+    return new Response(JSON.stringify(finalPayload), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
 
   } catch (error) {
     console.error('Error in ai-assistant function:', error);
+    const errorReply = 'Sorry, something went wrong. Please try again.';
+    const errorPayload = { 
+      error: error instanceof Error ? error.message : 'Unknown error occurred',
+      reply: errorReply,
+      message: errorReply, // Alias for GHL compatibility
+      question_count: 0,
+      tracking_link: null,
+      should_reply: false,
+    };
+
+    console.log('FINAL RESPONSE TO GHL (error):', JSON.stringify(errorPayload, null, 2));
+
     return new Response(
-      JSON.stringify({ 
-        error: error instanceof Error ? error.message : 'Unknown error occurred',
-        reply: 'Sorry, something went wrong. Please try again.',
-        question_count: 0,
-        tracking_link: null,
-        should_reply: false,
-      }),
+      JSON.stringify(errorPayload),
       {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
