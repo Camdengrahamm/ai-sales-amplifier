@@ -112,45 +112,106 @@ serve(async (req) => {
 
     const data = rawBody.customData ?? rawBody.data ?? rawBody;
 
-    // Try multiple places / aliases for each field
-    const coach_id =
-      data.coach_id ??
-      data.coachId ??
-      data.coach ??
-      rawBody.coach_id ??
-      rawBody.coachId;
+    // Helper: return first non-empty string
+    const pickString = (...cands: any[]) => {
+      for (const c of cands) {
+        if (typeof c === "string" && c.trim().length > 0) {
+          return c.trim();
+        }
+      }
+      return undefined;
+    };
 
-    // First try explicit user_handle, then fall back to contact_id
-    let user_handle =
-      data.user_handle ??
-      data.userHandle ??
-      data.instagramHandle ??
-      rawBody.user_handle ??
-      rawBody.userHandle ??
-      data.contact_id ??          // use contact_id as a fallback "handle"
-      rawBody.contact_id;
+    // -------------------------------
+    // 1. Coach ID (must be present)
+    // -------------------------------
+    const coach_id = pickString(
+      data.coach_id,
+      rawBody.coach_id,
+      data.coachId,
+      rawBody.coachId,
+    );
 
-    // Try message in a few different shapes
-    let message =
-      data.message ??
-      data.last_inbound_message ??
-      data.lastMessage ??
-      rawBody.message;
+    // -------------------------------
+    // 2. Contact Name / User Handle (safe fallback)
+    // -------------------------------
+    let contact_name = pickString(
+      data.contact_name,
+      rawBody.contact_name,
+      rawBody.contact?.full_name,
+      rawBody.contact?.name,
+      rawBody.contact?.first_name,
+      rawBody.contact?.last_name,
+      data.contactName,
+      rawBody.contactName,
+    );
 
-    // Some GHL payloads nest the body under message.body
-    if (!message && rawBody.message && typeof rawBody.message === "object") {
-      message = rawBody.message.body ?? rawBody.message.text ?? rawBody.message.content;
+    // fallback if GHL gives nothing
+    if (!contact_name) {
+      contact_name =
+        rawBody.contact_id ||
+        data.contact_id ||
+        "Unknown_User_" + Date.now().toString();
     }
+
+    // User handle for session tracking - prefer explicit handle, fall back to contact_name
+    let user_handle = pickString(
+      data.user_handle,
+      data.userHandle,
+      data.instagramHandle,
+      rawBody.user_handle,
+      rawBody.userHandle,
+      rawBody.instagram_username,
+      data.contact_id,
+      rawBody.contact_id,
+    );
+
+    if (!user_handle) {
+      user_handle = contact_name;
+    }
+
+    // -------------------------------
+    // 3. Message (IG → GHL has 8+ shapes)
+    // -------------------------------
+    let message = pickString(
+      data.message,
+      data.data?.message,            // GHL sometimes nests this
+      rawBody.message,
+      rawBody.body,
+      rawBody.text,
+      rawBody.content,
+      rawBody.message?.body,
+      rawBody.message?.text,
+      rawBody.message?.content,
+      rawBody.conversation?.last_message,
+      data.last_inbound_message,
+      data.lastMessage,
+    );
+
+    // Hard fallback if message still empty
+    if (!message && typeof rawBody.message === "object") {
+      message = pickString(
+        rawBody.message.body,
+        rawBody.message.text,
+        rawBody.message.content,
+      );
+    }
+
+    // Final safety check
+    if (!message) message = "";
 
     // Debug what we actually parsed
     console.log("PARSED FIELDS:", {
       coach_id,
       user_handle,
+      contact_name,
       message,
+      message_length: message.length,
       data_keys: Object.keys(data || {}),
+      rawBody_keys: Object.keys(rawBody || {}),
     });
 
-    // Now only *require* coach_id and message (user_handle can fall back)
+    // Only require coach_id and non-empty message
     if (!coach_id || !message) {
       console.error("Missing required fields after parsing:", {
         coach_id,
@@ -170,28 +231,26 @@ serve(async (req) => {
       );
     }
 
-    // If user_handle is still empty, at least give it something stable
-    if (!user_handle) {
-      user_handle = "unknown_" + (rawBody.contact_id ?? Date.now().toString());
-    }
-
     // Default if not explicitly sent
-    const source_channel =
-      data.source_channel ?? data.sourceChannel ?? rawBody.source_channel ?? "instagram";
+    const source_channel = pickString(
+      data.source_channel,
+      data.sourceChannel,
+      rawBody.source_channel,
+      rawBody.sourceChannel,
+    ) || "instagram";
 
     // Optional fields
-    const contact_id = data.contact_id ?? data.contactId ?? rawBody.contact_id;
-    const location_id = data.location_id ?? data.locationId ?? rawBody.location_id;
-    const contact_name = data.contact_name ?? data.contactName ?? rawBody.contact_name ?? rawBody.full_name;
-    const contact_email = data.contact_email ?? data.contactEmail ?? rawBody.contact_email ?? rawBody.email;
+    const contact_id = pickString(data.contact_id, data.contactId, rawBody.contact_id);
+    const location_id = pickString(data.location_id, data.locationId, rawBody.location_id);
+    const contact_email = pickString(data.contact_email, data.contactEmail, rawBody.contact_email, rawBody.email);
 
     console.log('AI Assistant request:', { 
       coach_id, 
-      user_handle, 
+      user_handle,
+      contact_name,
       source_channel,
       contact_id,
       location_id,
-      contact_name,
       message_length: message.length 
     });
 
