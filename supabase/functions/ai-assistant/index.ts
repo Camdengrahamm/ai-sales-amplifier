@@ -106,24 +106,74 @@ serve(async (req) => {
   try {
     // Parse and validate request body - support both direct JSON and nested GHL payloads
     const rawBody = await req.json();
-    console.log("Raw GHL body:", rawBody);
+    
+    // Log everything coming from GHL so we can see the real shape
+    console.log("RAW GHL BODY:", JSON.stringify(rawBody, null, 2));
 
-    // Support both:
-    // - direct JSON (like curl test)
-    // - nested customData / data from GHL
     const data = rawBody.customData ?? rawBody.data ?? rawBody;
 
+    // Try multiple places / aliases for each field
     const coach_id =
-      data.coach_id ?? data.coachId ?? data.coach ??
-      rawBody.coach_id ?? rawBody.coachId;
+      data.coach_id ??
+      data.coachId ??
+      data.coach ??
+      rawBody.coach_id ??
+      rawBody.coachId;
 
-    const user_handle =
-      data.user_handle ?? data.userHandle ?? data.instagramHandle ??
-      rawBody.user_handle ?? rawBody.userHandle;
+    // First try explicit user_handle, then fall back to contact_id
+    let user_handle =
+      data.user_handle ??
+      data.userHandle ??
+      data.instagramHandle ??
+      rawBody.user_handle ??
+      rawBody.userHandle ??
+      data.contact_id ??          // use contact_id as a fallback "handle"
+      rawBody.contact_id;
 
-    const message =
-      data.message ?? data.last_inbound_message ?? data.lastMessage ??
+    // Try message in a few different shapes
+    let message =
+      data.message ??
+      data.last_inbound_message ??
+      data.lastMessage ??
       rawBody.message;
+
+    // Some GHL payloads nest the body under message.body
+    if (!message && rawBody.message && typeof rawBody.message === "object") {
+      message = rawBody.message.body ?? rawBody.message.text ?? rawBody.message.content;
+    }
+
+    // Debug what we actually parsed
+    console.log("PARSED FIELDS:", {
+      coach_id,
+      user_handle,
+      message,
+      data_keys: Object.keys(data || {}),
+    });
+
+    // Now only *require* coach_id and message (user_handle can fall back)
+    if (!coach_id || !message) {
+      console.error("Missing required fields after parsing:", {
+        coach_id,
+        user_handle,
+        message,
+      });
+
+      return new Response(
+        JSON.stringify({
+          error:
+            "Missing required fields: coach_id and message are required. Check GHL webhook mapping.",
+        }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    // If user_handle is still empty, at least give it something stable
+    if (!user_handle) {
+      user_handle = "unknown_" + (rawBody.contact_id ?? Date.now().toString());
+    }
 
     // Default if not explicitly sent
     const source_channel =
@@ -132,22 +182,8 @@ serve(async (req) => {
     // Optional fields
     const contact_id = data.contact_id ?? data.contactId ?? rawBody.contact_id;
     const location_id = data.location_id ?? data.locationId ?? rawBody.location_id;
-    const contact_name = data.contact_name ?? data.contactName ?? rawBody.contact_name;
-    const contact_email = data.contact_email ?? data.contactEmail ?? rawBody.contact_email;
-
-    // Validation
-    if (!coach_id || !user_handle || !message) {
-      console.error("Missing required fields in body:", rawBody);
-      return new Response(
-        JSON.stringify({
-          error: "Missing required fields: coach_id, user_handle, and message are required",
-        }),
-        {
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
-    }
+    const contact_name = data.contact_name ?? data.contactName ?? rawBody.contact_name ?? rawBody.full_name;
+    const contact_email = data.contact_email ?? data.contactEmail ?? rawBody.contact_email ?? rawBody.email;
 
     console.log('AI Assistant request:', { 
       coach_id, 
