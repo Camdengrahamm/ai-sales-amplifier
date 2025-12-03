@@ -2,107 +2,105 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
-All colors MUST be HSL.
-*/
+/* Premium Apple-style design system for DM Autopilot */
 
 @layer base {
   :root {
-    /* Deep navy base - professional and trustworthy */
-    --background: 220 25% 97%;
-    --foreground: 225 40% 12%;
+    /* Apple-clean light gray base */
+    --background: 0 0% 97%;
+    --foreground: 220 15% 12%;
 
-    /* Card surfaces */
+    /* Card surfaces - pure white */
     --card: 0 0% 100%;
-    --card-foreground: 225 40% 12%;
+    --card-foreground: 220 15% 12%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 225 40% 12%;
+    --popover-foreground: 220 15% 12%;
 
-    /* Vibrant coral accent - energetic and modern */
-    --primary: 12 88% 62%;
+    /* Modern blue-purple gradient primary */
+    --primary: 245 85% 60%;
     --primary-foreground: 0 0% 100%;
 
-    /* Deep navy for secondary actions */
-    --secondary: 225 40% 12%;
+    /* Dark navy for secondary */
+    --secondary: 220 25% 15%;
     --secondary-foreground: 0 0% 100%;
 
     /* Muted backgrounds */
-    --muted: 220 20% 95%;
-    --muted-foreground: 225 20% 45%;
+    --muted: 220 15% 94%;
+    --muted-foreground: 220 10% 45%;
 
-    /* Success/positive accent */
-    --accent: 165 70% 48%;
+    /* Accent - purple gradient end */
+    --accent: 280 80% 55%;
     --accent-foreground: 0 0% 100%;
 
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 220 15% 88%;
-    --input: 220 15% 88%;
-    --ring: 12 88% 62%;
+    --border: 220 15% 90%;
+    --input: 220 15% 90%;
+    --ring: 245 85% 60%;
 
-    --radius: 0.75rem;
+    --radius: 1rem;
 
     /* Sidebar styling */
-    --sidebar-background: 225 40% 12%;
-    --sidebar-foreground: 220 20% 85%;
-    --sidebar-primary: 12 88% 62%;
+    --sidebar-background: 220 25% 15%;
+    --sidebar-foreground: 220 15% 90%;
+    --sidebar-primary: 245 85% 60%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 225 35% 18%;
-    --sidebar-accent-foreground: 220 20% 90%;
-    --sidebar-border: 225 30% 20%;
-    --sidebar-ring: 12 88% 62%;
+    --sidebar-accent: 220 20% 20%;
+    --sidebar-accent-foreground: 220 15% 95%;
+    --sidebar-border: 220 20% 25%;
+    --sidebar-ring: 245 85% 60%;
     
-    /* Custom brand colors */
-    --navy-dark: 225 40% 12%;
-    --navy-medium: 225 35% 18%;
-    --coral: 12 88% 62%;
-    --coral-light: 12 88% 72%;
-    --teal: 165 70% 48%;
+    /* Premium brand colors */
+    --gradient-start: 245 85% 60%;
+    --gradient-end: 280 80% 55%;
+    --surface-elevated: 0 0% 100%;
+    --text-primary: 220 15% 12%;
+    --text-secondary: 220 10% 45%;
+    --text-tertiary: 220 8% 60%;
     
     /* Smooth transitions */
     --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   .dark {
-    /* Dark mode uses inverted navy scheme */
-    --background: 225 40% 8%;
-    --foreground: 220 20% 92%;
+    --background: 220 20% 8%;
+    --foreground: 220 10% 95%;
 
-    --card: 225 35% 12%;
-    --card-foreground: 220 20% 92%;
+    --card: 220 20% 12%;
+    --card-foreground: 220 10% 95%;
 
-    --popover: 225 35% 12%;
-    --popover-foreground: 220 20% 92%;
+    --popover: 220 20% 12%;
+    --popover-foreground: 220 10% 95%;
 
-    --primary: 12 88% 62%;
+    --primary: 245 85% 65%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 225 35% 18%;
-    --secondary-foreground: 220 20% 92%;
+    --secondary: 220 15% 20%;
+    --secondary-foreground: 220 10% 95%;
 
-    --muted: 225 30% 16%;
-    --muted-foreground: 220 15% 65%;
+    --muted: 220 15% 15%;
+    --muted-foreground: 220 10% 60%;
 
-    --accent: 165 70% 48%;
+    --accent: 280 80% 60%;
     --accent-foreground: 0 0% 100%;
 
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 225 30% 20%;
-    --input: 225 30% 20%;
-    --ring: 12 88% 62%;
+    --border: 220 15% 20%;
+    --input: 220 15% 20%;
+    --ring: 245 85% 65%;
 
-    --sidebar-background: 225 40% 10%;
-    --sidebar-foreground: 220 20% 85%;
-    --sidebar-primary: 12 88% 62%;
+    --sidebar-background: 220 20% 6%;
+    --sidebar-foreground: 220 10% 90%;
+    --sidebar-primary: 245 85% 65%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 225 35% 15%;
-    --sidebar-accent-foreground: 220 20% 90%;
-    --sidebar-border: 225 30% 18%;
-    --sidebar-ring: 12 88% 62%;
+    --sidebar-accent: 220 15% 12%;
+    --sidebar-accent-foreground: 220 10% 95%;
+    --sidebar-border: 220 15% 15%;
+    --sidebar-ring: 245 85% 65%;
   }
 }
 
@@ -115,23 +113,98 @@ All colors MUST be HSL.
     @apply bg-background text-foreground font-sans antialiased;
   }
   
-  /* Import Manrope font */
-  @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&display=swap');
+  /* Import Inter font for Apple-style typography */
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
 }
 
 @layer components {
-  /* Dashboard stat card */
-  .stat-card {
-    @apply bg-card border border-border rounded-xl p-6 transition-all hover:shadow-lg;
+  /* Premium gradient button */
+  .btn-gradient {
+    @apply relative overflow-hidden rounded-xl px-8 py-4 font-semibold text-white transition-all duration-300;
+    background: linear-gradient(135deg, hsl(var(--gradient-start)) 0%, hsl(var(--gradient-end)) 100%);
+    box-shadow: 0 4px 20px -4px hsla(var(--gradient-start), 0.4);
   }
   
-  /* Animated gradient background */
-  .gradient-bg {
-    background: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--accent)) 100%);
+  .btn-gradient:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 30px -4px hsla(var(--gradient-start), 0.5);
+  }
+  
+  /* Premium card with soft shadow */
+  .card-premium {
+    @apply bg-card rounded-2xl border border-border/50 p-8;
+    box-shadow: 0 4px 40px -12px hsla(220, 20%, 20%, 0.08);
+  }
+  
+  .card-premium:hover {
+    box-shadow: 0 8px 50px -12px hsla(220, 20%, 20%, 0.12);
+  }
+  
+  /* Glass effect card */
+  .card-glass {
+    @apply rounded-2xl border border-white/20 p-6;
+    background: hsla(0, 0%, 100%, 0.7);
+    backdrop-filter: blur(20px);
+  }
+  
+  /* Gradient text */
+  .text-gradient {
+    background: linear-gradient(135deg, hsl(var(--gradient-start)) 0%, hsl(var(--gradient-end)) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  
+  /* Gradient background */
+  .bg-gradient-primary {
+    background: linear-gradient(135deg, hsl(var(--gradient-start)) 0%, hsl(var(--gradient-end)) 100%);
+  }
+  
+  /* Subtle gradient background */
+  .bg-gradient-subtle {
+    background: linear-gradient(180deg, hsl(var(--background)) 0%, hsl(var(--muted)) 100%);
+  }
+  
+  /* Glow effect */
+  .glow-primary {
+    box-shadow: 0 0 60px -15px hsla(var(--gradient-start), 0.3);
   }
   
   /* Smooth transitions */
   .transition-smooth {
     transition: var(--transition-smooth);
   }
+  
+  /* Section spacing */
+  .section-padding {
+    @apply py-20 md:py-28 lg:py-32;
+  }
+  
+  /* Container max-width */
+  .container-tight {
+    @apply max-w-6xl mx-auto px-4 sm:px-6 lg:px-8;
+  }
+  
+  /* Dashboard stat card */
+  .stat-card {
+    @apply bg-card border border-border rounded-xl p-6 transition-all hover:shadow-lg;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: hsl(var(--muted));
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground));
 }
