@@ -259,26 +259,32 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const lovableApiKey = Deno.env.get('LOVABLE_API_KEY')!;
     const ghlApiKey = Deno.env.get('GHL_API_KEY');
+    const GHL_BASE_URL = 'https://rest.gohighlevel.com';
+    const AI_DM_RESPONSE_FIELD_ID = '9ItPxAnq08HtekinLu7m';
     
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     // Helper function to push reply to GHL contact custom field
     const pushReplyToGHL = async (contactId: string | undefined, reply: string) => {
-      if (!contactId || !ghlApiKey) {
-        console.log('Skipping GHL push - missing contact_id or GHL_API_KEY');
+      if (!contactId || !reply) {
+        console.log('Skipping GHL push - missing contact_id or reply');
+        return;
+      }
+      if (!ghlApiKey) {
+        console.log('Skipping GHL push - missing GHL_API_KEY');
         return;
       }
       
       try {
-        const ghlResponse = await fetch(`https://rest.gohighlevel.com/v1/contacts/${contactId}`, {
+        const ghlResponse = await fetch(`${GHL_BASE_URL}/v1/contacts/${contactId}`, {
           method: 'PUT',
           headers: {
-            'Authorization': `Bearer ${ghlApiKey}`,
             'Content-Type': 'application/json',
+            'Authorization': `Bearer ${ghlApiKey}`,
           },
           body: JSON.stringify({
             customField: {
-              ai_dm_response: reply,
+              [AI_DM_RESPONSE_FIELD_ID]: reply,
             },
           }),
         });
