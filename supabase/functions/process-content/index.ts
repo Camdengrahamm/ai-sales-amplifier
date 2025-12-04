@@ -9,31 +9,57 @@ const corsHeaders = {
 // Chunk text into smaller pieces for better retrieval
 function chunkText(text: string, maxChunkSize = 1000, overlap = 200): string[] {
   const chunks: string[] = [];
-  const sentences = text.split(/(?<=[.!?])\s+/);
   
-  let currentChunk = '';
-  
-  for (const sentence of sentences) {
-    if ((currentChunk + sentence).length > maxChunkSize && currentChunk.length > 0) {
-      chunks.push(currentChunk.trim());
-      // Keep overlap for context continuity
-      const words = currentChunk.split(' ');
-      const overlapWords = words.slice(-Math.floor(overlap / 5));
-      currentChunk = overlapWords.join(' ') + ' ' + sentence;
-    } else {
-      currentChunk += (currentChunk ? ' ' : '') + sentence;
+  // Simple chunking by character count with sentence awareness
+  let start = 0;
+  while (start < text.length) {
+    let end = Math.min(start + maxChunkSize, text.length);
+    
+    // Try to end at a sentence boundary
+    if (end < text.length) {
+      const lastPeriod = text.lastIndexOf('.', end);
+      const lastQuestion = text.lastIndexOf('?', end);
+      const lastExclaim = text.lastIndexOf('!', end);
+      const lastBreak = Math.max(lastPeriod, lastQuestion, lastExclaim);
+      
+      if (lastBreak > start + maxChunkSize / 2) {
+        end = lastBreak + 1;
+      }
     }
+    
+    const chunk = text.slice(start, end).trim();
+    if (chunk.length > 50) {
+      chunks.push(chunk);
+    }
+    
+    // Move start with overlap
+    start = end - overlap;
+    if (start >= text.length - overlap) break;
   }
   
-  if (currentChunk.trim()) {
-    chunks.push(currentChunk.trim());
-  }
+  return chunks;
+}
+
+// Extract readable text from any content
+function extractReadableText(content: string): string {
+  // Remove binary/non-printable characters but keep basic punctuation and newlines
+  let text = content
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g, ' ')
+    .replace(/[^\x20-\x7E\n\r\t]/g, ' ');
   
-  return chunks.filter(chunk => chunk.length > 50); // Filter out tiny chunks
+  // Clean up whitespace
+  text = text
+    .replace(/\s+/g, ' ')
+    .replace(/\n\s*\n/g, '\n')
+    .trim();
+  
+  return text;
 }
 
 // Extract text from different file types
 async function extractText(fileUrl: string, filename: string): Promise<string> {
+  console.log(`Fetching file: ${fileUrl}`);
+  
   const response = await fetch(fileUrl);
   if (!response.ok) {
     throw new Error(`Failed to fetch file: ${response.status}`);
@@ -41,104 +67,113 @@ async function extractText(fileUrl: string, filename: string): Promise<string> {
   
   const lowerFilename = filename.toLowerCase();
   
+  // For text files, read directly
   if (lowerFilename.endsWith('.txt') || lowerFilename.endsWith('.md')) {
-    return await response.text();
+    const text = await response.text();
+    console.log(`Extracted ${text.length} chars from text file`);
+    return text;
+  }
+  
+  // For PDF and DOCX, we'll extract what text we can
+  const arrayBuffer = await response.arrayBuffer();
+  const bytes = new Uint8Array(arrayBuffer);
+  
+  // Convert to string safely (avoid stack overflow)
+  let content = '';
+  const chunkSize = 65536; // Process in 64KB chunks
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.slice(i, i + chunkSize);
+    content += String.fromCharCode.apply(null, Array.from(chunk));
   }
   
   if (lowerFilename.endsWith('.pdf')) {
-    // For PDFs, we'll use Lovable AI to extract content
-    const arrayBuffer = await response.arrayBuffer();
-    const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
-    
-    // Use AI to help extract text from PDF (basic approach)
-    // In production, you'd use a PDF parsing library
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      throw new Error("LOVABLE_API_KEY not configured");
-    }
-    
-    // For PDFs, we'll try to get raw text extraction
-    // This is a simplified approach - PDFs are complex
-    const pdfText = await extractPdfText(arrayBuffer);
-    return pdfText;
+    console.log('Processing PDF file...');
+    return extractPdfText(content);
   }
   
   if (lowerFilename.endsWith('.docx') || lowerFilename.endsWith('.doc')) {
-    // For DOCX, extract plain text
-    const arrayBuffer = await response.arrayBuffer();
-    return await extractDocxText(arrayBuffer);
+    console.log('Processing DOCX file...');
+    return extractDocxText(content);
   }
   
-  // For other files, try to read as text
-  return await response.text();
+  // For other files, try to extract readable text
+  return extractReadableText(content);
 }
 
-// Basic PDF text extraction (simplified)
-async function extractPdfText(arrayBuffer: ArrayBuffer): Promise<string> {
-  // Convert to string and look for text streams
-  const bytes = new Uint8Array(arrayBuffer);
-  let text = '';
+// Basic PDF text extraction
+function extractPdfText(content: string): string {
+  const textParts: string[] = [];
   
-  // Very basic PDF text extraction - looks for text between BT and ET markers
-  // This is simplified and won't work for all PDFs
-  const decoder = new TextDecoder('utf-8', { fatal: false });
-  const content = decoder.decode(bytes);
-  
-  // Extract text objects (simplified approach)
-  const textMatches = content.match(/\(([^)]+)\)/g);
-  if (textMatches) {
-    text = textMatches
-      .map(match => match.slice(1, -1))
-      .filter(t => t.length > 2 && /[a-zA-Z]/.test(t))
-      .join(' ');
+  // Method 1: Look for text in parentheses (PDF text objects)
+  const parenMatches = content.match(/\(([^)]{3,})\)/g);
+  if (parenMatches) {
+    for (const match of parenMatches) {
+      const text = match.slice(1, -1);
+      // Filter to only keep readable text
+      if (/[a-zA-Z]{2,}/.test(text)) {
+        textParts.push(text);
+      }
+    }
   }
   
-  // Also try to find raw readable text
-  const readableText = content.match(/[A-Za-z][A-Za-z\s.,!?;:'"()-]{20,}/g);
-  if (readableText) {
-    text += ' ' + readableText.join(' ');
+  // Method 2: Look for readable text sequences
+  const readableMatches = content.match(/[A-Za-z][A-Za-z\s.,!?;:'"()\-]{15,}/g);
+  if (readableMatches) {
+    textParts.push(...readableMatches);
   }
   
-  // Clean up the text
-  text = text
-    .replace(/\n/g, '\n')
-    .replace(/\r/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
+  // Combine and clean
+  let text = textParts.join(' ');
+  text = extractReadableText(text);
+  
+  // Remove duplicates (PDF often has repeated text)
+  const seen = new Set<string>();
+  const unique = text.split(/\s+/).filter(word => {
+    if (seen.has(word.toLowerCase())) return false;
+    seen.add(word.toLowerCase());
+    return true;
+  });
+  
+  text = unique.join(' ');
+  console.log(`Extracted ${text.length} chars from PDF`);
   
   if (text.length < 100) {
-    // If basic extraction failed, return placeholder
-    console.log("Basic PDF extraction yielded minimal text, file may need manual review");
-    return "Content extracted from PDF. Please note: Complex PDF formatting may require manual review.";
+    return "Content extracted from PDF document. Note: Complex PDF formatting may limit text extraction. Consider uploading as .txt for best results.";
   }
   
   return text;
 }
 
 // Basic DOCX text extraction
-async function extractDocxText(arrayBuffer: ArrayBuffer): Promise<string> {
-  // DOCX files are ZIP archives containing XML
-  // This is a simplified approach
-  const decoder = new TextDecoder('utf-8', { fatal: false });
-  const content = decoder.decode(new Uint8Array(arrayBuffer));
+function extractDocxText(content: string): string {
+  const textParts: string[] = [];
   
-  // Look for text content in the XML
-  const textMatches = content.match(/<w:t[^>]*>([^<]+)<\/w:t>/g);
-  if (textMatches) {
-    return textMatches
-      .map(match => match.replace(/<[^>]+>/g, ''))
-      .join(' ')
-      .replace(/\s+/g, ' ')
-      .trim();
+  // DOCX XML text content
+  const xmlMatches = content.match(/<w:t[^>]*>([^<]+)<\/w:t>/g);
+  if (xmlMatches) {
+    for (const match of xmlMatches) {
+      const text = match.replace(/<[^>]+>/g, '');
+      if (text.length > 1) {
+        textParts.push(text);
+      }
+    }
   }
   
-  // Fallback: extract any readable text
-  const readableText = content.match(/[A-Za-z][A-Za-z\s.,!?;:'"()-]{10,}/g);
-  if (readableText) {
-    return readableText.join(' ');
+  // Also look for readable text
+  const readableMatches = content.match(/[A-Za-z][A-Za-z\s.,!?;:'"()\-]{10,}/g);
+  if (readableMatches) {
+    textParts.push(...readableMatches);
   }
   
-  return "Content extracted from document.";
+  let text = textParts.join(' ');
+  text = extractReadableText(text);
+  console.log(`Extracted ${text.length} chars from DOCX`);
+  
+  if (text.length < 50) {
+    return "Content extracted from document.";
+  }
+  
+  return text;
 }
 
 serve(async (req) => {
@@ -163,26 +198,35 @@ serve(async (req) => {
 
     // Extract text from file
     console.log(`Extracting text from: ${filename}`);
-    const extractedText = await extractText(file_url, filename);
-    console.log(`Extracted ${extractedText.length} characters`);
-
-    if (extractedText.length < 50) {
-      console.log("Warning: Very little text extracted from file");
+    let extractedText: string;
+    
+    try {
+      extractedText = await extractText(file_url, filename);
+    } catch (extractError) {
+      console.error('Text extraction error:', extractError);
+      extractedText = `Content from ${filename}. Text extraction encountered an error.`;
     }
+    
+    console.log(`Extracted ${extractedText.length} characters`);
 
     // Chunk the text
     const chunks = chunkText(extractedText);
     console.log(`Created ${chunks.length} chunks`);
 
+    if (chunks.length === 0) {
+      // Create at least one chunk with the filename
+      chunks.push(`Content from file: ${filename}`);
+    }
+
     // Store chunks in embeddings table
     const embeddingsToInsert = chunks.map(chunk => ({
       coach_id,
       content_chunk: chunk,
-      embedding_vector: null, // Vector embeddings can be added later with a dedicated embedding model
+      embedding_vector: null,
     }));
 
-    // Insert in batches to avoid timeouts
-    const batchSize = 50;
+    // Insert in batches
+    const batchSize = 20;
     let insertedCount = 0;
     
     for (let i = 0; i < embeddingsToInsert.length; i += batchSize) {
@@ -192,13 +236,14 @@ serve(async (req) => {
         .insert(batch);
       
       if (insertError) {
-        console.error(`Error inserting batch ${i / batchSize}:`, insertError);
+        console.error(`Error inserting batch:`, insertError);
         throw insertError;
       }
       insertedCount += batch.length;
+      console.log(`Inserted batch ${Math.floor(i / batchSize) + 1}, total: ${insertedCount}`);
     }
 
-    console.log(`Inserted ${insertedCount} embeddings for coach ${coach_id}`);
+    console.log(`Total inserted: ${insertedCount} embeddings for coach ${coach_id}`);
 
     // Mark file as processed
     if (file_id) {
