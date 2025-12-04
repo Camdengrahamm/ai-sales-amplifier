@@ -128,11 +128,16 @@ const Dashboard = () => {
 
       // Use user.id for folder name to match storage RLS policy
       for (const file of Array.from(files)) {
-        // Sanitize filename: remove special chars, replace spaces with underscores
+        // Robust filename sanitization: only allow alphanumeric, dots, dashes, underscores
         const sanitizedName = file.name
-          .replace(/[^\w\s.-]/g, '') // Remove special characters except dots, dashes, underscores
-          .replace(/\s+/g, '_'); // Replace spaces with underscores
+          .normalize('NFD') // Normalize unicode characters
+          .replace(/[\u0300-\u036f]/g, '') // Remove diacritics
+          .replace(/[^a-zA-Z0-9._-]/g, '_') // Replace ALL non-safe chars with underscore
+          .replace(/_+/g, '_') // Collapse multiple underscores
+          .replace(/^_|_$/g, ''); // Trim leading/trailing underscores
+        
         const fileName = `${user.id}/${Date.now()}-${sanitizedName}`;
+        console.log("Uploading file:", fileName);
         
         const { error: uploadError } = await supabase.storage
           .from("course-files")
