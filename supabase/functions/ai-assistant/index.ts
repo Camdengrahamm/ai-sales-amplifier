@@ -258,8 +258,41 @@ serve(async (req) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const lovableApiKey = Deno.env.get('LOVABLE_API_KEY')!;
+    const ghlApiKey = Deno.env.get('GHL_API_KEY');
     
     const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // Helper function to push reply to GHL contact custom field
+    const pushReplyToGHL = async (contactId: string | undefined, reply: string) => {
+      if (!contactId || !ghlApiKey) {
+        console.log('Skipping GHL push - missing contact_id or GHL_API_KEY');
+        return;
+      }
+      
+      try {
+        const ghlResponse = await fetch(`https://rest.gohighlevel.com/v1/contacts/${contactId}`, {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${ghlApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            customField: {
+              ai_dm_response: reply,
+            },
+          }),
+        });
+        
+        if (!ghlResponse.ok) {
+          const errorText = await ghlResponse.text();
+          console.error('GHL API error:', ghlResponse.status, errorText);
+        } else {
+          console.log('Successfully pushed reply to GHL contact:', contactId);
+        }
+      } catch (error) {
+        console.error('Error pushing reply to GHL:', error);
+      }
+    };
 
     // Step 1: Classify the message intent
     const intent = await classifyMessage(message, lovableApiKey);
@@ -309,6 +342,9 @@ serve(async (req) => {
       };
 
       console.log('FINAL RESPONSE TO GHL (neutral):', JSON.stringify(finalPayload, null, 2));
+
+      // Push reply to GHL contact custom field
+      await pushReplyToGHL(contact_id, neutralReply);
 
       return new Response(JSON.stringify(finalPayload), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -477,6 +513,9 @@ ${intent === 'SALES_INTENT' ? '- The user seems interested in buying/enrolling â
     };
 
     console.log('FINAL RESPONSE TO GHL:', JSON.stringify(finalPayload, null, 2));
+
+    // Push reply to GHL contact custom field
+    await pushReplyToGHL(contact_id, reply);
 
     return new Response(JSON.stringify(finalPayload), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
