@@ -379,10 +379,10 @@ serve(async (req) => {
       console.error('Error updating session:', updateError);
     }
 
-    // Step 4: Get coach info
+    // Step 4: Get coach info with customization settings
     const { data: coach, error: coachError } = await supabase
       .from('coaches')
-      .select('name, brand_name')
+      .select('name, brand_name, plan, system_prompt, tone, response_style, brand_voice, escalation_email, max_questions_before_cta')
       .eq('id', coachId)
       .single();
 
@@ -392,6 +392,11 @@ serve(async (req) => {
     }
 
     const coachDisplayName = coach.brand_name || coach.name;
+    const maxQuestionsBeforeCta = coach.max_questions_before_cta || 3;
+    const coachTone = coach.tone || 'friendly';
+    const responseStyle = coach.response_style || 'concise';
+    const isPremium = coach.plan === 'premium';
+    const isStandardOrHigher = coach.plan === 'standard' || coach.plan === 'premium';
 
     // Step 5: Retrieve relevant embeddings (top 5 chunks)
     const { data: embeddings, error: embeddingsError } = await supabase
@@ -407,21 +412,47 @@ serve(async (req) => {
     const courseContext = embeddings?.map(e => e.content_chunk).join('\n\n') || '';
     const hasContent = courseContext.length > 0;
 
-    // Step 6: Build system prompt
-    const systemPrompt = `You are an AI assistant for ${coachDisplayName}. You help answer questions from potential customers via Instagram DM.
+    // Step 6: Build system prompt with customization
+    const toneInstructions: Record<string, string> = {
+      friendly: 'Be warm, approachable, and conversational',
+      professional: 'Be polished, articulate, and business-like',
+      casual: 'Be relaxed, informal, and use casual language',
+      motivational: 'Be energetic, encouraging, and inspiring',
+    };
+
+    const styleInstructions: Record<string, string> = {
+      concise: 'Keep responses brief (2-3 sentences max)',
+      detailed: 'Provide thorough, comprehensive answers',
+      conversational: 'Write like you\'re having a natural conversation',
+    };
+
+    // Build custom prompt - premium users get full customization
+    let systemPrompt = '';
+    
+    if (isPremium && coach.system_prompt) {
+      // Premium users can override with custom system prompt
+      systemPrompt = coach.system_prompt;
+      if (hasContent) {
+        systemPrompt += `\n\nUse this knowledge base:\n${courseContext}`;
+      }
+    } else {
+      // Standard prompt with tone/style customization for standard+ plans
+      systemPrompt = `You are an AI assistant for ${coachDisplayName}. You help answer questions from potential customers via Instagram DM.
 
 ${hasContent ? `Use the following course/program content as your knowledge base:
 
 ${courseContext}
 
 ` : ''}Guidelines:
-- Be helpful, friendly, and conversational — this is a DM, not an email
-- Keep responses concise (2-4 sentences max unless more detail is needed)
+- ${isStandardOrHigher ? toneInstructions[coachTone] : 'Be helpful, friendly, and conversational'} — this is a DM, not an email
+- ${isStandardOrHigher ? styleInstructions[responseStyle] : 'Keep responses concise (2-4 sentences max unless more detail is needed)'}
 - Match the coach's tone and style
 - Never contradict the course content
-- If you don't know something, be honest and offer to connect them with the coach
+- If you don't know something, be honest${isPremium && coach.escalation_email ? ` and mention they can email ${coach.escalation_email}` : ' and offer to connect them with the coach'}
 - Don't be overly salesy in early messages
+${isPremium && coach.brand_voice ? `- Brand voice: ${coach.brand_voice}` : ''}
 ${intent === 'SALES_INTENT' ? '- The user seems interested in buying/enrolling — be helpful about next steps' : ''}`;
+    }
 
     // Step 7: Generate AI response
     const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
@@ -475,10 +506,10 @@ ${intent === 'SALES_INTENT' ? '- The user seems interested in buying/enrolling �
     const aiData = await aiResponse.json();
     let reply = aiData.choices?.[0]?.message?.content || 'Sorry, I couldn\'t generate a response. Please try again.';
 
-    // Step 8: Add CTA after 3+ questions if offer exists
+    // Step 8: Add CTA after configured questions threshold if offer exists
     let trackingLink: string | null = null;
 
-    if (newQuestionCount >= 3) {
+    if (newQuestionCount >= maxQuestionsBeforeCta) {
       const { data: offers } = await supabase
         .from('offers')
         .select('*')

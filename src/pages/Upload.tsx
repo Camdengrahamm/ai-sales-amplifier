@@ -57,6 +57,12 @@ const Upload = () => {
         if (dbError) throw dbError;
       }
 
+      // Mark content as uploaded for this coach
+      await supabase
+        .from("coaches")
+        .update({ content_uploaded: true })
+        .eq("id", coach.id);
+
       toast.success(`${files.length} file(s) uploaded successfully!`);
       
       // In production, you would trigger background processing here

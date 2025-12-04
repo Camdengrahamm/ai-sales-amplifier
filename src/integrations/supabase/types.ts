@@ -68,32 +68,56 @@ export type Database = {
       coaches: {
         Row: {
           brand_name: string | null
+          brand_voice: string | null
+          content_uploaded: boolean | null
           created_at: string | null
-          default_commission_rate: number | null
           email: string
+          escalation_email: string | null
           id: string
           main_checkout_url: string | null
+          max_questions_before_cta: number | null
           name: string
+          onboarding_complete: boolean | null
+          plan: Database["public"]["Enums"]["coach_plan"]
+          response_style: string | null
+          system_prompt: string | null
+          tone: string | null
           user_id: string
         }
         Insert: {
           brand_name?: string | null
+          brand_voice?: string | null
+          content_uploaded?: boolean | null
           created_at?: string | null
-          default_commission_rate?: number | null
           email: string
+          escalation_email?: string | null
           id?: string
           main_checkout_url?: string | null
+          max_questions_before_cta?: number | null
           name: string
+          onboarding_complete?: boolean | null
+          plan?: Database["public"]["Enums"]["coach_plan"]
+          response_style?: string | null
+          system_prompt?: string | null
+          tone?: string | null
           user_id: string
         }
         Update: {
           brand_name?: string | null
+          brand_voice?: string | null
+          content_uploaded?: boolean | null
           created_at?: string | null
-          default_commission_rate?: number | null
           email?: string
+          escalation_email?: string | null
           id?: string
           main_checkout_url?: string | null
+          max_questions_before_cta?: number | null
           name?: string
+          onboarding_complete?: boolean | null
+          plan?: Database["public"]["Enums"]["coach_plan"]
+          response_style?: string | null
+          system_prompt?: string | null
+          tone?: string | null
           user_id?: string
         }
         Relationships: []
@@ -244,57 +268,11 @@ export type Database = {
           },
         ]
       }
-      payouts: {
-        Row: {
-          coach_id: string
-          created_at: string | null
-          id: string
-          notes: string | null
-          period_end: string
-          period_start: string
-          status: string | null
-          total_commission_due: number
-          total_sales_amount: number
-        }
-        Insert: {
-          coach_id: string
-          created_at?: string | null
-          id?: string
-          notes?: string | null
-          period_end: string
-          period_start: string
-          status?: string | null
-          total_commission_due: number
-          total_sales_amount: number
-        }
-        Update: {
-          coach_id?: string
-          created_at?: string | null
-          id?: string
-          notes?: string | null
-          period_end?: string
-          period_start?: string
-          status?: string | null
-          total_commission_due?: number
-          total_sales_amount?: number
-        }
-        Relationships: [
-          {
-            foreignKeyName: "payouts_coach_id_fkey"
-            columns: ["coach_id"]
-            isOneToOne: false
-            referencedRelation: "coaches"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       sales: {
         Row: {
           amount: number
           click_id: string | null
           coach_id: string
-          commission_due: number
-          commission_rate_used: number
           contact_email: string
           created_at: string | null
           currency: string | null
@@ -308,8 +286,6 @@ export type Database = {
           amount: number
           click_id?: string | null
           coach_id: string
-          commission_due: number
-          commission_rate_used: number
           contact_email: string
           created_at?: string | null
           currency?: string | null
@@ -323,8 +299,6 @@ export type Database = {
           amount?: number
           click_id?: string | null
           coach_id?: string
-          commission_due?: number
-          commission_rate_used?: number
           contact_email?: string
           created_at?: string | null
           currency?: string | null
@@ -395,6 +369,7 @@ export type Database = {
     }
     Enums: {
       app_role: "admin" | "coach"
+      coach_plan: "basic" | "standard" | "premium"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -523,6 +498,7 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["admin", "coach"],
+      coach_plan: ["basic", "standard", "premium"],
     },
   },
 } as const

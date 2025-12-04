@@ -6,8 +6,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Plus, Mail } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Plus, Mail, CheckCircle, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 
@@ -16,7 +18,9 @@ interface Coach {
   name: string;
   email: string;
   brand_name: string | null;
-  default_commission_rate: number;
+  plan: string;
+  onboarding_complete: boolean;
+  content_uploaded: boolean;
   created_at: string;
 }
 
@@ -28,7 +32,7 @@ const Coaches = () => {
     email: "",
     password: "",
     brand_name: "",
-    commission_rate: "10",
+    plan: "basic",
   });
 
   useEffect(() => {
@@ -39,7 +43,7 @@ const Coaches = () => {
     try {
       const { data, error } = await supabase
         .from("coaches")
-        .select("*")
+        .select("id, name, email, brand_name, plan, onboarding_complete, content_uploaded, created_at")
         .order("created_at", { ascending: false });
 
       if (error) throw error;
@@ -74,7 +78,7 @@ const Coaches = () => {
             email: newCoach.email,
             password: newCoach.password,
             brand_name: newCoach.brand_name,
-            commission_rate: newCoach.commission_rate,
+            plan: newCoach.plan,
           }),
         }
       );
@@ -85,18 +89,26 @@ const Coaches = () => {
         throw new Error(result.error || "Failed to create coach");
       }
 
-      toast.success("Coach created successfully!");
+      toast.success("Client created successfully!");
       setNewCoach({
         name: "",
         email: "",
         password: "",
         brand_name: "",
-        commission_rate: "10",
+        plan: "basic",
       });
       fetchCoaches();
     } catch (error: any) {
       console.error("Error creating coach:", error);
-      toast.error(error.message || "Failed to create coach");
+      toast.error(error.message || "Failed to create client");
+    }
+  };
+
+  const getPlanBadgeVariant = (plan: string) => {
+    switch (plan) {
+      case "premium": return "default";
+      case "standard": return "secondary";
+      default: return "outline";
     }
   };
 
@@ -105,9 +117,9 @@ const Coaches = () => {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold">Coaches</h1>
+            <h1 className="text-3xl font-bold">Clients</h1>
             <p className="text-muted-foreground mt-1">
-              Manage coach accounts and monitor their performance
+              Manage client accounts and monitor their status
             </p>
           </div>
 
@@ -115,12 +127,12 @@ const Coaches = () => {
             <DialogTrigger asChild>
               <Button className="gap-2">
                 <Plus className="w-4 h-4" />
-                Add Coach
+                Add Client
               </Button>
             </DialogTrigger>
             <DialogContent className="max-w-md">
               <DialogHeader>
-                <DialogTitle>Create New Coach</DialogTitle>
+                <DialogTitle>Create New Client</DialogTitle>
               </DialogHeader>
               <div className="space-y-4">
                 <div className="space-y-2">
@@ -137,7 +149,7 @@ const Coaches = () => {
                   <Input
                     id="coach-email"
                     type="email"
-                    placeholder="coach@example.com"
+                    placeholder="client@example.com"
                     value={newCoach.email}
                     onChange={(e) => setNewCoach({ ...newCoach, email: e.target.value })}
                   />
@@ -156,23 +168,29 @@ const Coaches = () => {
                   <Label htmlFor="coach-brand">Brand Name</Label>
                   <Input
                     id="coach-brand"
-                    placeholder="Coaching Brand"
+                    placeholder="Business Name"
                     value={newCoach.brand_name}
                     onChange={(e) => setNewCoach({ ...newCoach, brand_name: e.target.value })}
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="coach-commission">Default Commission Rate (%)</Label>
-                  <Input
-                    id="coach-commission"
-                    type="number"
-                    placeholder="10"
-                    value={newCoach.commission_rate}
-                    onChange={(e) => setNewCoach({ ...newCoach, commission_rate: e.target.value })}
-                  />
+                  <Label htmlFor="coach-plan">Plan</Label>
+                  <Select 
+                    value={newCoach.plan} 
+                    onValueChange={(value) => setNewCoach({ ...newCoach, plan: value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="basic">Basic</SelectItem>
+                      <SelectItem value="standard">Standard</SelectItem>
+                      <SelectItem value="premium">Premium</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <Button onClick={handleCreateCoach} className="w-full">
-                  Create Coach
+                  Create Client
                 </Button>
               </div>
             </DialogContent>
@@ -181,16 +199,16 @@ const Coaches = () => {
 
         <Card>
           <CardHeader>
-            <CardTitle>All Coaches</CardTitle>
+            <CardTitle>All Clients</CardTitle>
           </CardHeader>
           <CardContent>
             {loading ? (
               <div className="text-center py-12">
-                <p className="text-muted-foreground">Loading coaches...</p>
+                <p className="text-muted-foreground">Loading clients...</p>
               </div>
             ) : coaches.length === 0 ? (
               <div className="text-center py-12">
-                <p className="text-muted-foreground">No coaches yet. Create your first coach to get started!</p>
+                <p className="text-muted-foreground">No clients yet. Add your first client to get started!</p>
               </div>
             ) : (
               <Table>
@@ -199,7 +217,8 @@ const Coaches = () => {
                     <TableHead>Name</TableHead>
                     <TableHead>Email</TableHead>
                     <TableHead>Brand</TableHead>
-                    <TableHead>Commission</TableHead>
+                    <TableHead>Plan</TableHead>
+                    <TableHead>Content</TableHead>
                     <TableHead>Joined</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -214,7 +233,18 @@ const Coaches = () => {
                         </div>
                       </TableCell>
                       <TableCell>{coach.brand_name || "-"}</TableCell>
-                      <TableCell>{coach.default_commission_rate}%</TableCell>
+                      <TableCell>
+                        <Badge variant={getPlanBadgeVariant(coach.plan)} className="capitalize">
+                          {coach.plan}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {coach.content_uploaded ? (
+                          <CheckCircle className="w-4 h-4 text-green-500" />
+                        ) : (
+                          <XCircle className="w-4 h-4 text-muted-foreground" />
+                        )}
+                      </TableCell>
                       <TableCell>
                         {format(new Date(coach.created_at), "MMM d, yyyy")}
                       </TableCell>
