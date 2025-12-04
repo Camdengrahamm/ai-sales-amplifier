@@ -49,16 +49,33 @@ const Upload = () => {
           .getPublicUrl(fileName);
 
         // Record in database
-        const { error: dbError } = await supabase
+        const { data: fileRecord, error: dbError } = await supabase
           .from("course_files")
           .insert({
             coach_id: coach.id,
             filename: file.name,
             file_url: publicUrl,
             processed: false,
-          });
+          })
+          .select('id')
+          .single();
 
         if (dbError) throw dbError;
+
+        // Trigger content processing
+        const { error: processError } = await supabase.functions.invoke('process-content', {
+          body: {
+            file_id: fileRecord?.id,
+            coach_id: coach.id,
+            file_url: publicUrl,
+            filename: file.name,
+          }
+        });
+
+        if (processError) {
+          console.error("Processing error:", processError);
+          toast.error(`Upload succeeded but processing failed for ${file.name}`);
+        }
       }
 
       // Mark content as uploaded for this coach
@@ -67,15 +84,7 @@ const Upload = () => {
         .update({ content_uploaded: true })
         .eq("id", coach.id);
 
-      toast.success(`${files.length} file(s) uploaded successfully!`);
-      
-      // In production, you would trigger background processing here
-      // For now, we'll just show a message
-      setProcessing(true);
-      setTimeout(() => {
-        setProcessing(false);
-        toast.info("Files are being processed for AI training. This may take a few minutes.");
-      }, 2000);
+      toast.success(`${files.length} file(s) uploaded and processing started!`);
       
     } catch (error: any) {
       console.error("Error uploading files:", error);
