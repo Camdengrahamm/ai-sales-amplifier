@@ -7,21 +7,21 @@ const corsHeaders = {
 };
 
 // Chunk text into smaller pieces for better retrieval
-function chunkText(text: string, maxChunkSize = 800, overlap = 150): string[] {
+function chunkText(text: string, maxChunkSize = 1000, overlap = 200): string[] {
   const chunks: string[] = [];
   
-  // Split by paragraphs first
-  const paragraphs = text.split(/\n\n+/).filter(p => p.trim().length > 20);
+  // Split by paragraphs/sections first
+  const sections = text.split(/\n\n+/).filter(p => p.trim().length > 30);
   
   let currentChunk = '';
-  for (const para of paragraphs) {
-    if ((currentChunk + '\n\n' + para).length > maxChunkSize && currentChunk.length > 100) {
+  for (const section of sections) {
+    if ((currentChunk + '\n\n' + section).length > maxChunkSize && currentChunk.length > 100) {
       chunks.push(currentChunk.trim());
       // Keep some overlap
       const words = currentChunk.split(' ');
-      currentChunk = words.slice(-20).join(' ') + '\n\n' + para;
+      currentChunk = words.slice(-30).join(' ') + '\n\n' + section;
     } else {
-      currentChunk += (currentChunk ? '\n\n' : '') + para;
+      currentChunk += (currentChunk ? '\n\n' : '') + section;
     }
   }
   
@@ -29,43 +29,57 @@ function chunkText(text: string, maxChunkSize = 800, overlap = 150): string[] {
     chunks.push(currentChunk.trim());
   }
   
-  // If we got very few chunks, do character-based chunking
-  if (chunks.length < 3 && text.length > 1000) {
+  // If we got very few chunks from a large text, do sentence-based chunking
+  if (chunks.length < 3 && text.length > 2000) {
     chunks.length = 0;
-    let start = 0;
-    while (start < text.length) {
-      const end = Math.min(start + maxChunkSize, text.length);
-      const chunk = text.slice(start, end).trim();
-      if (chunk.length > 50) {
-        chunks.push(chunk);
+    const sentences = text.split(/(?<=[.!?])\s+/);
+    currentChunk = '';
+    
+    for (const sentence of sentences) {
+      if ((currentChunk + ' ' + sentence).length > maxChunkSize && currentChunk.length > 200) {
+        chunks.push(currentChunk.trim());
+        currentChunk = sentence;
+      } else {
+        currentChunk += (currentChunk ? ' ' : '') + sentence;
       }
-      start = end - overlap;
+    }
+    
+    if (currentChunk.trim().length > 50) {
+      chunks.push(currentChunk.trim());
     }
   }
   
   return chunks.filter(c => c.length > 50);
 }
 
-// Use AI to extract and summarize content from binary file data
-async function extractWithAI(fileContent: string, filename: string, apiKey: string): Promise<string> {
-  console.log('Using AI to extract content from:', filename);
+// Convert ArrayBuffer to base64
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+// Use AI with document/vision capabilities to extract text from PDF
+async function extractPdfWithVision(fileUrl: string, filename: string, apiKey: string): Promise<string> {
+  console.log('Using AI vision to extract PDF content from:', filename);
   
-  // For PDFs and complex docs, ask AI to identify and extract meaningful content
-  const prompt = `You are a content extraction assistant. The following is raw data from a file named "${filename}".
-
-Your task:
-1. Identify any readable text content (ignore binary garbage, encoding artifacts, PDF stream markers like "endstream endobj")
-2. Extract and reconstruct the meaningful human-readable text
-3. If you find structured content (headings, bullet points, paragraphs), preserve that structure
-4. If the content appears to be training material or documentation, extract the key information
-5. Ignore any URLs, metadata, or technical markers unless they're part of the actual content
-
-Raw file content (first 15000 chars):
-${fileContent.slice(0, 15000)}
-
-Please extract and return ONLY the meaningful, readable text content. If no meaningful content can be extracted, respond with "NO_CONTENT_FOUND".`;
-
-  const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+  // Fetch the file and convert to base64
+  const response = await fetch(fileUrl);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch file: ${response.status}`);
+  }
+  
+  const arrayBuffer = await response.arrayBuffer();
+  const base64Data = arrayBufferToBase64(arrayBuffer);
+  const mimeType = 'application/pdf';
+  
+  console.log(`File size: ${arrayBuffer.byteLength} bytes, sending to AI...`);
+  
+  // Use Gemini's document understanding with inline_data
+  const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${apiKey}`,
@@ -73,83 +87,111 @@ Please extract and return ONLY the meaningful, readable text content. If no mean
     },
     body: JSON.stringify({
       model: 'google/gemini-2.5-flash',
-      messages: [{ role: 'user', content: prompt }],
-      max_tokens: 4000,
+      messages: [{
+        role: 'user',
+        content: [
+          {
+            type: 'file',
+            file: {
+              filename: filename,
+              file_data: `data:${mimeType};base64,${base64Data}`
+            }
+          },
+          {
+            type: 'text',
+            text: `You are a document transcription expert. Please extract ALL text content from this PDF document.
+
+Instructions:
+1. Read through the ENTIRE document, page by page
+2. Extract ALL text content including headings, paragraphs, bullet points, lists, and any other text
+3. Preserve the document structure (headings, sections, bullet points)
+4. Include ALL information - do not summarize or skip anything
+5. Format the output as clean, readable text with proper line breaks between sections
+
+Important: This is training content for an AI assistant. Every detail matters. Extract the complete text, not a summary.
+
+Please begin the full transcription:`
+          }
+        ]
+      }],
+      max_tokens: 16000,
     }),
   });
 
-  if (!response.ok) {
-    console.error('AI extraction failed:', response.status);
-    throw new Error('AI extraction failed');
+  if (!aiResponse.ok) {
+    const errorText = await aiResponse.text();
+    console.error('AI vision extraction failed:', aiResponse.status, errorText);
+    throw new Error(`AI vision extraction failed: ${aiResponse.status}`);
   }
 
-  const data = await response.json();
+  const data = await aiResponse.json();
   const extractedText = data.choices?.[0]?.message?.content || '';
   
-  if (extractedText.includes('NO_CONTENT_FOUND') || extractedText.length < 100) {
-    throw new Error('No meaningful content could be extracted from the file');
+  console.log(`AI extracted ${extractedText.length} characters`);
+  
+  if (extractedText.length < 200) {
+    console.error('Extraction too short, likely failed');
+    throw new Error('Could not extract meaningful content from PDF');
   }
   
   return extractedText;
 }
 
-// Extract text from different file types
+// Extract text from plain text files
+async function extractTextFile(fileUrl: string): Promise<string> {
+  const response = await fetch(fileUrl);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch file: ${response.status}`);
+  }
+  return await response.text();
+}
+
+// Main extraction function
 async function extractText(fileUrl: string, filename: string, apiKey: string): Promise<string> {
-  console.log(`Fetching file: ${fileUrl}`);
+  console.log(`Extracting text from: ${filename}`);
   
+  const lowerFilename = filename.toLowerCase();
+  
+  // Plain text files - read directly
+  if (lowerFilename.endsWith('.txt') || lowerFilename.endsWith('.md') || lowerFilename.endsWith('.csv')) {
+    const text = await extractTextFile(fileUrl);
+    console.log(`Extracted ${text.length} chars from text file`);
+    return text;
+  }
+  
+  // PDFs and other documents - use AI vision
+  if (lowerFilename.endsWith('.pdf')) {
+    return await extractPdfWithVision(fileUrl, filename, apiKey);
+  }
+  
+  // For DOCX and other formats, try text extraction first, then AI
   const response = await fetch(fileUrl);
   if (!response.ok) {
     throw new Error(`Failed to fetch file: ${response.status}`);
   }
   
-  const lowerFilename = filename.toLowerCase();
-  
-  // For plain text files, read directly
-  if (lowerFilename.endsWith('.txt') || lowerFilename.endsWith('.md')) {
-    const text = await response.text();
-    console.log(`Extracted ${text.length} chars from text file`);
-    return text;
-  }
-  
-  // For PDF and other binary formats, use AI extraction
   const arrayBuffer = await response.arrayBuffer();
   const bytes = new Uint8Array(arrayBuffer);
   
-  // Convert to string safely in chunks
+  // Try to extract readable text
   let content = '';
-  const chunkSize = 32768;
-  for (let i = 0; i < bytes.length && content.length < 50000; i += chunkSize) {
-    const chunk = bytes.slice(i, Math.min(i + chunkSize, bytes.length));
-    for (let j = 0; j < chunk.length; j++) {
-      const charCode = chunk[j];
-      // Only include printable ASCII and common whitespace
-      if ((charCode >= 32 && charCode <= 126) || charCode === 10 || charCode === 13 || charCode === 9) {
-        content += String.fromCharCode(charCode);
-      } else {
-        content += ' ';
-      }
+  for (let i = 0; i < bytes.length && content.length < 100000; i++) {
+    const charCode = bytes[i];
+    if ((charCode >= 32 && charCode <= 126) || charCode === 10 || charCode === 13 || charCode === 9) {
+      content += String.fromCharCode(charCode);
     }
   }
   
-  // Clean up the content
-  content = content
-    .replace(/\s+/g, ' ')
-    .replace(/\s*\n\s*/g, '\n')
-    .trim();
+  // Clean up
+  content = content.replace(/\s+/g, ' ').trim();
   
-  // Check if content looks like actual text or binary garbage
-  const readableRatio = (content.match(/[a-zA-Z]/g) || []).length / content.length;
+  // Check if content is readable
+  const readableRatio = (content.match(/[a-zA-Z]/g) || []).length / Math.max(content.length, 1);
   console.log(`Readable ratio: ${readableRatio.toFixed(2)}`);
   
-  if (readableRatio < 0.3 || content.includes('endstream') || content.includes('FlateDecode')) {
-    // Content is mostly binary/encoded, use AI to extract
-    console.log('Content appears encoded, using AI extraction...');
-    return await extractWithAI(content, filename, apiKey);
-  }
-  
-  // Content looks readable, but still clean it up with AI for better results
-  if (lowerFilename.endsWith('.pdf') || lowerFilename.endsWith('.docx')) {
-    return await extractWithAI(content, filename, apiKey);
+  if (readableRatio < 0.4 || content.length < 500) {
+    // Fall back to AI for this file type too
+    return await extractPdfWithVision(fileUrl, filename, apiKey);
   }
   
   return content;
@@ -179,22 +221,28 @@ serve(async (req) => {
     
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Extract text from file using AI when needed
-    console.log(`Extracting text from: ${filename}`);
+    // Extract text from file
+    console.log(`Starting extraction for: ${filename}`);
     let extractedText: string;
     
     try {
       extractedText = await extractText(file_url, filename, lovableApiKey);
     } catch (extractError) {
       console.error('Text extraction error:', extractError);
-      throw new Error(`Could not extract content from ${filename}. Please try uploading as a .txt file.`);
+      throw new Error(`Could not extract content from ${filename}. Error: ${extractError instanceof Error ? extractError.message : 'Unknown'}`);
     }
     
-    console.log(`Extracted ${extractedText.length} characters of meaningful content`);
+    console.log(`Extracted ${extractedText.length} characters of content`);
+    console.log(`First 500 chars preview: ${extractedText.slice(0, 500)}`);
 
     // Chunk the text
     const chunks = chunkText(extractedText);
     console.log(`Created ${chunks.length} content chunks`);
+    
+    // Log chunk sizes for debugging
+    chunks.forEach((chunk, i) => {
+      console.log(`Chunk ${i + 1}: ${chunk.length} chars`);
+    });
 
     if (chunks.length === 0) {
       throw new Error('No meaningful content chunks could be created from the file');
@@ -222,10 +270,10 @@ serve(async (req) => {
         throw insertError;
       }
       insertedCount += batch.length;
-      console.log(`Inserted batch, total: ${insertedCount}`);
+      console.log(`Inserted batch ${Math.ceil((i + 1) / batchSize)}, total: ${insertedCount}`);
     }
 
-    console.log(`Successfully stored ${insertedCount} content chunks`);
+    console.log(`Successfully stored ${insertedCount} content chunks for ${filename}`);
 
     // Mark file as processed
     if (file_id) {
@@ -239,7 +287,8 @@ serve(async (req) => {
       JSON.stringify({ 
         success: true, 
         chunks_created: insertedCount,
-        message: `Successfully processed ${filename} - ${insertedCount} content chunks created` 
+        total_chars: extractedText.length,
+        message: `Successfully processed ${filename} - ${insertedCount} chunks created from ${extractedText.length} characters` 
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
