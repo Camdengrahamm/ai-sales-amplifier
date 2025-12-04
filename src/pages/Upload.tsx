@@ -30,9 +30,9 @@ const Upload = () => {
 
       if (!coach) throw new Error("Coach profile not found");
 
-      // Upload files
+      // Upload files - use user.id for folder name to match storage RLS policy
       for (const file of Array.from(files)) {
-        const fileName = `${coach.id}/${Date.now()}-${file.name}`;
+        const fileName = `${user.id}/${Date.now()}-${file.name}`;
         
         const { error: uploadError } = await supabase.storage
           .from("course-files")

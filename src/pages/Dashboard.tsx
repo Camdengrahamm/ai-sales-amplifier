@@ -123,8 +123,12 @@ const Dashboard = () => {
     setUploading(true);
 
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
+      // Use user.id for folder name to match storage RLS policy
       for (const file of Array.from(files)) {
-        const fileName = `${coachData.id}/${Date.now()}-${file.name}`;
+        const fileName = `${user.id}/${Date.now()}-${file.name}`;
         
         const { error: uploadError } = await supabase.storage
           .from("course-files")
