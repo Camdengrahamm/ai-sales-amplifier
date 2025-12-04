@@ -1,14 +1,29 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { TrendingUp, MousePointerClick, DollarSign, Users, CheckCircle, Upload } from "lucide-react";
+import { TrendingUp, MousePointerClick, DollarSign, Users, CheckCircle, Upload, FileText, Loader2, MessageSquare } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import Layout from "@/components/Layout";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { useNavigate } from "react-router-dom";
+import { toast } from "sonner";
+import { format } from "date-fns";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+
+interface DmSession {
+  id: string;
+  coach_id: string;
+  user_handle: string;
+  question_count: number;
+  created_at: string;
+  last_question_at: string;
+  messages: any[];
+}
 
 const Dashboard = () => {
   const navigate = useNavigate();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [stats, setStats] = useState({
     totalClicks: 0,
     totalSales: 0,
@@ -17,11 +32,14 @@ const Dashboard = () => {
   });
   const [userRole, setUserRole] = useState<string | null>(null);
   const [coachData, setCoachData] = useState<{
+    id: string;
     plan: string;
     onboarding_complete: boolean;
     content_uploaded: boolean;
   } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [dmSessions, setDmSessions] = useState<DmSession[]>([]);
 
   useEffect(() => {
     fetchDashboardData();
@@ -52,6 +70,7 @@ const Dashboard = () => {
         coachId = coach?.id;
         if (coach) {
           setCoachData({
+            id: coach.id,
             plan: coach.plan,
             onboarding_complete: coach.onboarding_complete || false,
             content_uploaded: coach.content_uploaded || false,
@@ -66,7 +85,7 @@ const Dashboard = () => {
       }
       const { count: clicksCount } = await clicksQuery;
 
-      // Fetch sales (without commission columns)
+      // Fetch sales
       let salesQuery = supabase.from("sales").select("amount");
       if (coachId) {
         salesQuery = salesQuery.eq("coach_id", coachId);
@@ -74,11 +93,13 @@ const Dashboard = () => {
       const { data: salesData } = await salesQuery;
 
       // Fetch DM sessions
-      let sessionsQuery = supabase.from("dm_sessions").select("*", { count: "exact", head: true });
+      let sessionsQuery = supabase.from("dm_sessions").select("*").order("last_question_at", { ascending: false }).limit(10);
       if (coachId) {
         sessionsQuery = sessionsQuery.eq("coach_id", coachId);
       }
-      const { count: sessionsCount } = await sessionsQuery;
+      const { data: sessionsData, count: sessionsCount } = await sessionsQuery;
+      
+      setDmSessions((sessionsData as DmSession[]) || []);
 
       const totalRevenue = salesData?.reduce((sum, sale) => sum + Number(sale.amount), 0) || 0;
 
@@ -86,12 +107,63 @@ const Dashboard = () => {
         totalClicks: clicksCount || 0,
         totalSales: salesData?.length || 0,
         totalRevenue,
-        dmSessions: sessionsCount || 0,
+        dmSessions: sessionsData?.length || 0,
       });
     } catch (error) {
       console.error("Error fetching dashboard data:", error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files || files.length === 0 || !coachData) return;
+
+    setUploading(true);
+
+    try {
+      for (const file of Array.from(files)) {
+        const fileName = `${coachData.id}/${Date.now()}-${file.name}`;
+        
+        const { error: uploadError } = await supabase.storage
+          .from("course-files")
+          .upload(fileName, file);
+
+        if (uploadError) throw uploadError;
+
+        const { data: { publicUrl } } = supabase.storage
+          .from("course-files")
+          .getPublicUrl(fileName);
+
+        const { error: dbError } = await supabase
+          .from("course_files")
+          .insert({
+            coach_id: coachData.id,
+            filename: file.name,
+            file_url: publicUrl,
+            processed: false,
+          });
+
+        if (dbError) throw dbError;
+      }
+
+      await supabase
+        .from("coaches")
+        .update({ content_uploaded: true })
+        .eq("id", coachData.id);
+
+      setCoachData(prev => prev ? { ...prev, content_uploaded: true } : null);
+      toast.success(`${files.length} file(s) uploaded successfully!`);
+      
+    } catch (error: any) {
+      console.error("Error uploading files:", error);
+      toast.error(error.message || "Failed to upload files");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
     }
   };
 
@@ -187,10 +259,34 @@ const Dashboard = () => {
                   </span>
                 </div>
                 {!coachData.content_uploaded && (
-                  <Button size="sm" onClick={() => navigate('/upload')}>
-                    <Upload className="w-4 h-4 mr-2" />
-                    Upload
-                  </Button>
+                  <div>
+                    <Input
+                      ref={fileInputRef}
+                      type="file"
+                      className="hidden"
+                      onChange={handleFileUpload}
+                      multiple
+                      accept=".pdf,.txt,.docx,.doc,.png,.jpg,.jpeg"
+                      disabled={uploading}
+                    />
+                    <Button 
+                      size="sm" 
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={uploading}
+                    >
+                      {uploading ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Uploading...
+                        </>
+                      ) : (
+                        <>
+                          <Upload className="w-4 h-4 mr-2" />
+                          Upload
+                        </>
+                      )}
+                    </Button>
+                  </div>
                 )}
               </div>
             </CardContent>
@@ -222,6 +318,57 @@ const Dashboard = () => {
             );
           })}
         </div>
+
+        {/* DM Conversations */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <MessageSquare className="w-5 h-5" />
+              DM Conversations
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {dmSessions.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <MessageSquare className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                <p className="text-lg font-medium">No conversations yet</p>
+                <p className="text-sm">DM conversations will appear here once your AI starts engaging</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>User Handle</TableHead>
+                      <TableHead>Messages</TableHead>
+                      <TableHead>Started</TableHead>
+                      <TableHead>Last Activity</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {dmSessions.map((session) => (
+                      <TableRow key={session.id}>
+                        <TableCell className="font-medium">@{session.user_handle}</TableCell>
+                        <TableCell>
+                          <Badge variant="secondary">{session.question_count} messages</Badge>
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {format(new Date(session.created_at), "MMM d, yyyy")}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {session.last_question_at 
+                            ? format(new Date(session.last_question_at), "MMM d, h:mm a")
+                            : "-"
+                          }
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         <Card>
           <CardHeader>

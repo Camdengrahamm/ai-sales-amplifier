@@ -339,7 +339,32 @@ serve(async (req) => {
       });
     }
 
-    // Step 2: Get or create DM session
+    // Step 2: Upsert contact from ManyChat
+    const platform = source.toLowerCase().includes('instagram') ? 'instagram' : source;
+    if (contactId && userHandle) {
+      const { error: contactError } = await supabase
+        .from('contacts')
+        .upsert({
+          coach_id: coachId,
+          platform,
+          contact_id: contactId,
+          user_handle: userHandle,
+          first_name: contactName?.split(' ')[0] || null,
+          last_name: contactName?.split(' ').slice(1).join(' ') || null,
+          email: contactEmail || null,
+          updated_at: new Date().toISOString(),
+        }, {
+          onConflict: 'coach_id,platform,contact_id',
+        });
+
+      if (contactError) {
+        console.warn('Error upserting contact:', contactError);
+      } else {
+        console.log('Contact upserted successfully:', { contactId, userHandle });
+      }
+    }
+
+    // Step 3: Get or create DM session
     let { data: session, error: sessionError } = await supabase
       .from('dm_sessions')
       .select('*')

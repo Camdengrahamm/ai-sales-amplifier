@@ -122,6 +122,56 @@ export type Database = {
         }
         Relationships: []
       }
+      contacts: {
+        Row: {
+          coach_id: string
+          contact_id: string
+          created_at: string
+          email: string | null
+          first_name: string | null
+          id: string
+          last_name: string | null
+          phone: string | null
+          platform: string
+          updated_at: string
+          user_handle: string
+        }
+        Insert: {
+          coach_id: string
+          contact_id: string
+          created_at?: string
+          email?: string | null
+          first_name?: string | null
+          id?: string
+          last_name?: string | null
+          phone?: string | null
+          platform?: string
+          updated_at?: string
+          user_handle: string
+        }
+        Update: {
+          coach_id?: string
+          contact_id?: string
+          created_at?: string
+          email?: string | null
+          first_name?: string | null
+          id?: string
+          last_name?: string | null
+          phone?: string | null
+          platform?: string
+          updated_at?: string
+          user_handle?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contacts_coach_id_fkey"
+            columns: ["coach_id"]
+            isOneToOne: false
+            referencedRelation: "coaches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       course_files: {
         Row: {
           coach_id: string
@@ -163,6 +213,7 @@ export type Database = {
           created_at: string | null
           id: string
           last_question_at: string | null
+          messages: Json | null
           question_count: number | null
           user_handle: string
         }
@@ -171,6 +222,7 @@ export type Database = {
           created_at?: string | null
           id?: string
           last_question_at?: string | null
+          messages?: Json | null
           question_count?: number | null
           user_handle: string
         }
@@ -179,6 +231,7 @@ export type Database = {
           created_at?: string | null
           id?: string
           last_question_at?: string | null
+          messages?: Json | null
           question_count?: number | null
           user_handle?: string
         }
