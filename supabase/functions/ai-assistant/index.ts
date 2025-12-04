@@ -10,16 +10,31 @@ const corsHeaders = {
 // Message classification types
 type MessageIntent = 'SALES_INTENT' | 'QUESTION' | 'PERSONAL' | 'LOW_EFFORT';
 
-interface RequestBody {
-  coach_id: string;
-  user_handle: string;
-  message: string;
+// ManyChat webhook payload type
+type WebhookPayload = {
+  source?: string;
+  platform?: string;
   source_channel?: string;
+  coach_id?: string;
+  coachId?: string;
+  user_handle?: string;
+  userHandle?: string;
+  instagramHandle?: string;
   contact_id?: string;
-  location_id?: string;
+  contactId?: string;
   contact_name?: string;
+  contactName?: string;
   contact_email?: string;
-}
+  contactEmail?: string;
+  message?: string | { body?: string; text?: string; content?: string };
+  last_inbound_message?: string;
+  lastMessage?: string;
+  location_id?: string;
+  locationId?: string;
+  // Nested data support
+  customData?: WebhookPayload;
+  data?: WebhookPayload;
+};
 
 interface AIResponse {
   reply: string;
@@ -28,6 +43,13 @@ interface AIResponse {
   should_reply?: boolean;
   intent?: MessageIntent;
 }
+
+// Default coach ID fallback when invalid UUID is provided
+const DEFAULT_COACH_ID = "6abbc19a-ef88-4359-9dde-169d247f696f";
+
+// UUID validator
+const isUuid = (value: string | undefined): boolean =>
+  !!value && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 
 // Classify the incoming message intent
 async function classifyMessage(message: string, apiKey: string): Promise<MessageIntent> {
@@ -104,16 +126,17 @@ serve(async (req) => {
   }
 
   try {
-    // Parse and validate request body - support both direct JSON and nested GHL payloads
-    const rawBody = await req.json();
+    // Parse and validate request body - support both ManyChat and generic payloads
+    const rawBody = await req.json() as WebhookPayload;
     
-    // Log everything coming from GHL so we can see the real shape
-    console.log("RAW GHL BODY:", JSON.stringify(rawBody, null, 2));
+    // Log incoming payload for debugging
+    console.log("RAW WEBHOOK BODY:", JSON.stringify(rawBody, null, 2));
 
+    // Support nested data structures (customData or data)
     const data = rawBody.customData ?? rawBody.data ?? rawBody;
 
     // Helper: return first non-empty string
-    const pickString = (...cands: any[]) => {
+    const pickString = (...cands: unknown[]): string | undefined => {
       for (const c of cands) {
         if (typeof c === "string" && c.trim().length > 0) {
           return c.trim();
@@ -123,73 +146,70 @@ serve(async (req) => {
     };
 
     // -------------------------------
-    // 1. Coach ID (must be present)
+    // 1. Coach ID - validate UUID, fallback to default
     // -------------------------------
-    const coach_id = pickString(
+    const rawCoachId = pickString(
       data.coach_id,
       rawBody.coach_id,
       data.coachId,
       rawBody.coachId,
     );
+    
+    // Use valid UUID or fall back to default
+    const coachId = isUuid(rawCoachId) ? rawCoachId! : DEFAULT_COACH_ID;
+    
+    if (!isUuid(rawCoachId)) {
+      console.warn('Invalid or missing coach_id, using default:', {
+        received: rawCoachId,
+        using: DEFAULT_COACH_ID,
+      });
+    }
 
     // -------------------------------
-    // 2. Contact Name / User Handle (safe fallback)
+    // 2. Contact Name / User Handle
     // -------------------------------
-    let contact_name = pickString(
+    let contactName = pickString(
       data.contact_name,
       rawBody.contact_name,
-      rawBody.contact?.full_name,
-      rawBody.contact?.name,
-      rawBody.contact?.first_name,
-      rawBody.contact?.last_name,
       data.contactName,
       rawBody.contactName,
     );
 
-    // fallback if GHL gives nothing
-    if (!contact_name) {
-      contact_name =
-        rawBody.contact_id ||
-        data.contact_id ||
-        "Unknown_User_" + Date.now().toString();
+    // Fallback if nothing provided
+    if (!contactName) {
+      contactName = pickString(
+        rawBody.contact_id,
+        data.contact_id,
+      ) || "Unknown_User_" + Date.now().toString();
     }
 
-    // User handle for session tracking - prefer explicit handle, fall back to contact_name
-    let user_handle = pickString(
+    // User handle for session tracking
+    let userHandle = pickString(
       data.user_handle,
       data.userHandle,
       data.instagramHandle,
       rawBody.user_handle,
       rawBody.userHandle,
-      rawBody.instagram_username,
       data.contact_id,
       rawBody.contact_id,
     );
 
-    if (!user_handle) {
-      user_handle = contact_name;
+    if (!userHandle) {
+      userHandle = contactName;
     }
 
     // -------------------------------
-    // 3. Message (IG â†’ GHL has 8+ shapes)
+    // 3. Message - handle multiple formats
     // -------------------------------
     let message = pickString(
-      data.message,
-      data.data?.message,            // GHL sometimes nests this
-      rawBody.message,
-      rawBody.body,
-      rawBody.text,
-      rawBody.content,
-      rawBody.message?.body,
-      rawBody.message?.text,
-      rawBody.message?.content,
-      rawBody.conversation?.last_message,
+      typeof data.message === 'string' ? data.message : undefined,
+      typeof rawBody.message === 'string' ? rawBody.message : undefined,
       data.last_inbound_message,
       data.lastMessage,
     );
 
-    // Hard fallback if message still empty
-    if (!message && typeof rawBody.message === "object") {
+    // Handle message as object (e.g., { body: "text" })
+    if (!message && typeof rawBody.message === "object" && rawBody.message) {
       message = pickString(
         rawBody.message.body,
         rawBody.message.text,
@@ -200,29 +220,47 @@ serve(async (req) => {
     // Final safety check
     if (!message) message = "";
 
+    // -------------------------------
+    // 4. Source / Platform
+    // -------------------------------
+    const source = pickString(
+      data.source,
+      rawBody.source,
+      data.source_channel,
+      rawBody.source_channel,
+      data.platform,
+      rawBody.platform,
+    ) || "manychat";
+
+    // -------------------------------
+    // 5. Optional fields
+    // -------------------------------
+    const contactId = pickString(data.contact_id, data.contactId, rawBody.contact_id) ?? "";
+    const contactEmail = pickString(data.contact_email, data.contactEmail, rawBody.contact_email);
+
     // Debug what we actually parsed
     console.log("PARSED FIELDS:", {
-      coach_id,
-      user_handle,
-      contact_name,
+      coachId,
+      userHandle,
+      contactName,
+      contactId,
+      source,
       message,
       message_length: message.length,
-      data_keys: Object.keys(data || {}),
-      rawBody_keys: Object.keys(rawBody || {}),
     });
 
-    // Only require coach_id and non-empty message
-    if (!coach_id || !message) {
-      console.error("Missing required fields after parsing:", {
-        coach_id,
-        user_handle,
-        message,
-      });
+    // Validate required fields
+    if (!message) {
+      console.error("Missing required field: message");
 
       return new Response(
         JSON.stringify({
-          error:
-            "Missing required fields: coach_id and message are required. Check GHL webhook mapping.",
+          error: "Missing required field: message is required",
+          reply: "Sorry, I couldn't process your message.",
+          message: "Sorry, I couldn't process your message.",
+          question_count: 0,
+          tracking_link: null,
+          should_reply: false,
         }),
         {
           status: 400,
@@ -231,26 +269,12 @@ serve(async (req) => {
       );
     }
 
-    // Default if not explicitly sent
-    const source_channel = pickString(
-      data.source_channel,
-      data.sourceChannel,
-      rawBody.source_channel,
-      rawBody.sourceChannel,
-    ) || "instagram";
-
-    // Optional fields
-    const contact_id = pickString(data.contact_id, data.contactId, rawBody.contact_id);
-    const location_id = pickString(data.location_id, data.locationId, rawBody.location_id);
-    const contact_email = pickString(data.contact_email, data.contactEmail, rawBody.contact_email, rawBody.email);
-
     console.log('AI Assistant request:', { 
-      coach_id, 
-      user_handle,
-      contact_name,
-      source_channel,
-      contact_id,
-      location_id,
+      coachId, 
+      userHandle,
+      contactName,
+      source,
+      contactId,
       message_length: message.length 
     });
 
@@ -258,47 +282,8 @@ serve(async (req) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const lovableApiKey = Deno.env.get('LOVABLE_API_KEY')!;
-    const ghlApiKey = Deno.env.get('GHL_API_KEY');
-    const GHL_BASE_URL = 'https://rest.gohighlevel.com';
-    const AI_DM_RESPONSE_FIELD_ID = '9ItPxAnq08HtekinLu7m';
     
     const supabase = createClient(supabaseUrl, supabaseKey);
-
-    // Helper function to push reply to GHL contact custom field
-    const pushReplyToGHL = async (contactId: string | undefined, reply: string) => {
-      if (!contactId || !reply) {
-        console.log('Skipping GHL push - missing contact_id or reply');
-        return;
-      }
-      if (!ghlApiKey) {
-        console.log('Skipping GHL push - missing GHL_API_KEY');
-        return;
-      }
-      
-      try {
-        const ghlResponse = await fetch(`${GHL_BASE_URL}/v1/contacts/${contactId}`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${ghlApiKey}`,
-          },
-          body: JSON.stringify({
-            customField: {
-              [AI_DM_RESPONSE_FIELD_ID]: reply,
-            },
-          }),
-        });
-        
-        if (!ghlResponse.ok) {
-          const errorText = await ghlResponse.text();
-          console.error('GHL API error:', ghlResponse.status, errorText);
-        } else {
-          console.log('Successfully pushed reply to GHL contact:', contactId);
-        }
-      } catch (error) {
-        console.error('Error pushing reply to GHL:', error);
-      }
-    };
 
     // Step 1: Classify the message intent
     const intent = await classifyMessage(message, lovableApiKey);
@@ -306,22 +291,22 @@ serve(async (req) => {
 
     // Handle low-effort or personal messages with neutral responses
     if (intent === 'LOW_EFFORT' || intent === 'PERSONAL') {
-      const neutralReply = getNeutralResponse(intent, contact_name);
+      const neutralReply = getNeutralResponse(intent, contactName);
       
       // Still track the session even for neutral responses
       let { data: session } = await supabase
         .from('dm_sessions')
         .select('*')
-        .eq('coach_id', coach_id)
-        .eq('user_handle', user_handle)
+        .eq('coach_id', coachId)
+        .eq('user_handle', userHandle)
         .single();
 
       if (!session) {
         const { data: newSession } = await supabase
           .from('dm_sessions')
           .insert({
-            coach_id,
-            user_handle,
+            coach_id: coachId,
+            user_handle: userHandle,
             question_count: 1,
             last_question_at: new Date().toISOString(),
           })
@@ -340,17 +325,14 @@ serve(async (req) => {
 
       const finalPayload = {
         reply: neutralReply,
-        message: neutralReply, // Alias for GHL compatibility
+        message: neutralReply,
         question_count: session?.question_count || 1,
         tracking_link: null,
         should_reply: true,
         intent,
       };
 
-      console.log('FINAL RESPONSE TO GHL (neutral):', JSON.stringify(finalPayload, null, 2));
-
-      // Push reply to GHL contact custom field
-      await pushReplyToGHL(contact_id, neutralReply);
+      console.log('FINAL RESPONSE (neutral):', JSON.stringify(finalPayload, null, 2));
 
       return new Response(JSON.stringify(finalPayload), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -361,16 +343,16 @@ serve(async (req) => {
     let { data: session, error: sessionError } = await supabase
       .from('dm_sessions')
       .select('*')
-      .eq('coach_id', coach_id)
-      .eq('user_handle', user_handle)
+      .eq('coach_id', coachId)
+      .eq('user_handle', userHandle)
       .single();
 
     if (sessionError || !session) {
       const { data: newSession, error: createError } = await supabase
         .from('dm_sessions')
         .insert({
-          coach_id,
-          user_handle,
+          coach_id: coachId,
+          user_handle: userHandle,
           question_count: 0,
         })
         .select()
@@ -401,7 +383,7 @@ serve(async (req) => {
     const { data: coach, error: coachError } = await supabase
       .from('coaches')
       .select('name, brand_name')
-      .eq('id', coach_id)
+      .eq('id', coachId)
       .single();
 
     if (coachError || !coach) {
@@ -415,7 +397,7 @@ serve(async (req) => {
     const { data: embeddings, error: embeddingsError } = await supabase
       .from('embeddings')
       .select('content_chunk')
-      .eq('coach_id', coach_id)
+      .eq('coach_id', coachId)
       .limit(5);
 
     if (embeddingsError) {
@@ -463,13 +445,27 @@ ${intent === 'SALES_INTENT' ? '- The user seems interested in buying/enrolling â
       
       if (aiResponse.status === 429) {
         return new Response(
-          JSON.stringify({ error: 'Rate limit exceeded. Please try again later.' }),
+          JSON.stringify({ 
+            error: 'Rate limit exceeded. Please try again later.',
+            reply: 'Sorry, I\'m a bit busy right now. Please try again in a moment.',
+            message: 'Sorry, I\'m a bit busy right now. Please try again in a moment.',
+            question_count: newQuestionCount,
+            tracking_link: null,
+            should_reply: false,
+          }),
           { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
       if (aiResponse.status === 402) {
         return new Response(
-          JSON.stringify({ error: 'AI service credits exhausted.' }),
+          JSON.stringify({ 
+            error: 'AI service credits exhausted.',
+            reply: 'Sorry, something went wrong. Please try again later.',
+            message: 'Sorry, something went wrong. Please try again later.',
+            question_count: newQuestionCount,
+            tracking_link: null,
+            should_reply: false,
+          }),
           { status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
@@ -486,7 +482,7 @@ ${intent === 'SALES_INTENT' ? '- The user seems interested in buying/enrolling â
       const { data: offers } = await supabase
         .from('offers')
         .select('*')
-        .eq('coach_id', coach_id)
+        .eq('coach_id', coachId)
         .eq('is_active', true)
         .limit(1);
 
@@ -511,17 +507,14 @@ ${intent === 'SALES_INTENT' ? '- The user seems interested in buying/enrolling â
     // Step 9: Build and return response
     const finalPayload = {
       reply,
-      message: reply, // Alias for GHL compatibility
+      message: reply,
       question_count: newQuestionCount,
       tracking_link: trackingLink,
       should_reply: true,
       intent,
     };
 
-    console.log('FINAL RESPONSE TO GHL:', JSON.stringify(finalPayload, null, 2));
-
-    // Push reply to GHL contact custom field
-    await pushReplyToGHL(contact_id, reply);
+    console.log('FINAL RESPONSE:', JSON.stringify(finalPayload, null, 2));
 
     return new Response(JSON.stringify(finalPayload), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -533,13 +526,13 @@ ${intent === 'SALES_INTENT' ? '- The user seems interested in buying/enrolling â
     const errorPayload = { 
       error: error instanceof Error ? error.message : 'Unknown error occurred',
       reply: errorReply,
-      message: errorReply, // Alias for GHL compatibility
+      message: errorReply,
       question_count: 0,
       tracking_link: null,
       should_reply: false,
     };
 
-    console.log('FINAL RESPONSE TO GHL (error):', JSON.stringify(errorPayload, null, 2));
+    console.log('FINAL RESPONSE (error):', JSON.stringify(errorPayload, null, 2));
 
     return new Response(
       JSON.stringify(errorPayload),
