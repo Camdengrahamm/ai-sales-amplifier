@@ -144,16 +144,28 @@ const Dashboard = () => {
           .from("course-files")
           .getPublicUrl(fileName);
 
-        const { error: dbError } = await supabase
+        const { data: fileRecord, error: dbError } = await supabase
           .from("course_files")
           .insert({
             coach_id: coachData.id,
             filename: file.name,
             file_url: publicUrl,
             processed: false,
-          });
+          })
+          .select('id')
+          .single();
 
         if (dbError) throw dbError;
+
+        // Trigger content processing
+        supabase.functions.invoke('process-content', {
+          body: {
+            file_id: fileRecord?.id,
+            coach_id: coachData.id,
+            file_url: publicUrl,
+            filename: file.name,
+          }
+        }).catch(err => console.error("Processing error:", err));
       }
 
       await supabase
@@ -162,7 +174,7 @@ const Dashboard = () => {
         .eq("id", coachData.id);
 
       setCoachData(prev => prev ? { ...prev, content_uploaded: true } : null);
-      toast.success(`${files.length} file(s) uploaded successfully!`);
+      toast.success(`${files.length} file(s) uploaded and processing started!`);
       
     } catch (error: any) {
       console.error("Error uploading files:", error);

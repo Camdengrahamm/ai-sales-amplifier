@@ -423,16 +423,53 @@ serve(async (req) => {
     const isPremium = coach.plan === 'premium';
     const isStandardOrHigher = coach.plan === 'standard' || coach.plan === 'premium';
 
-    // Step 5: Retrieve relevant embeddings (top 5 chunks)
-    const { data: embeddings, error: embeddingsError } = await supabase
-      .from('embeddings')
-      .select('content_chunk')
-      .eq('coach_id', coachId)
-      .limit(5);
-
-    if (embeddingsError) {
-      console.error('Error fetching embeddings:', embeddingsError);
+    // Step 5: Retrieve relevant embeddings using keyword search
+    // Extract keywords from the user's message for relevance matching
+    const searchTerms = message.toLowerCase()
+      .replace(/[^\w\s]/g, ' ')
+      .split(/\s+/)
+      .filter((word: string) => word.length > 3); // Filter short words
+    
+    let embeddings: { content_chunk: string }[] | null = null;
+    
+    if (searchTerms.length > 0) {
+      // Build a text search query using OR logic
+      const searchPattern = searchTerms.slice(0, 5).join('%|%'); // Limit to 5 terms
+      
+      const { data, error: embeddingsError } = await supabase
+        .from('embeddings')
+        .select('content_chunk')
+        .eq('coach_id', coachId)
+        .or(searchTerms.slice(0, 3).map((term: string) => `content_chunk.ilike.%${term}%`).join(','))
+        .limit(5);
+      
+      if (embeddingsError) {
+        console.error('Error fetching embeddings with search:', embeddingsError);
+        // Fallback to basic fetch
+        const { data: fallbackData } = await supabase
+          .from('embeddings')
+          .select('content_chunk')
+          .eq('coach_id', coachId)
+          .limit(5);
+        embeddings = fallbackData;
+      } else {
+        embeddings = data;
+      }
+    } else {
+      // No meaningful search terms, get first chunks
+      const { data, error: embeddingsError } = await supabase
+        .from('embeddings')
+        .select('content_chunk')
+        .eq('coach_id', coachId)
+        .limit(5);
+      
+      if (embeddingsError) {
+        console.error('Error fetching embeddings:', embeddingsError);
+      }
+      embeddings = data;
     }
+    
+    console.log(`Found ${embeddings?.length || 0} relevant content chunks`);
 
     const courseContext = embeddings?.map(e => e.content_chunk).join('\n\n') || '';
     const hasContent = courseContext.length > 0;
