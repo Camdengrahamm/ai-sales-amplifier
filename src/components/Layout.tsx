@@ -45,6 +45,7 @@ const AppSidebar = ({ userRole, onSignOut }: { userRole: string | null; onSignOu
   const navigation = [
     { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard, show: true },
     { name: "Coaches", href: "/coaches", icon: Users, show: isAdmin },
+    { name: "Contacts", href: "/contacts", icon: Users, show: true },
     { name: "Offers", href: "/offers", icon: Package, show: true },
     { name: "Upload Content", href: "/upload", icon: Upload, show: !isAdmin },
     { name: "Sales", href: "/sales", icon: DollarSign, show: true },
