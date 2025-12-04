@@ -51,7 +51,7 @@ serve(async (req) => {
     }
 
     // Parse request body
-    const { name, email, password, brand_name, commission_rate } = await req.json();
+    const { name, email, password, brand_name, plan } = await req.json();
 
     if (!name || !email || !password) {
       return new Response(JSON.stringify({ error: "Missing required fields" }), {
@@ -85,7 +85,7 @@ serve(async (req) => {
         name,
         email,
         brand_name: brand_name || null,
-        default_commission_rate: parseFloat(commission_rate) || 10,
+        plan: plan || "basic",
       });
 
     if (coachError) {

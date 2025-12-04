@@ -4,16 +4,16 @@ import Layout from "@/components/Layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { DollarSign } from "lucide-react";
+import { DollarSign, TrendingUp } from "lucide-react";
 import { format } from "date-fns";
 
 interface Sale {
   id: string;
   contact_email: string;
   amount: number;
-  commission_due: number;
   currency: string;
   purchased_at: string;
+  source: string;
   offers: { name: string } | null;
 }
 
@@ -43,9 +43,9 @@ const Sales = () => {
           id,
           contact_email,
           amount,
-          commission_due,
           currency,
           purchased_at,
+          source,
           offers (name)
         `)
         .order("purchased_at", { ascending: false });
@@ -75,7 +75,6 @@ const Sales = () => {
   };
 
   const totalRevenue = sales.reduce((sum, sale) => sum + Number(sale.amount), 0);
-  const totalCommission = sales.reduce((sum, sale) => sum + Number(sale.commission_due), 0);
 
   return (
     <Layout>
@@ -83,7 +82,7 @@ const Sales = () => {
         <div>
           <h1 className="text-3xl font-bold">Sales</h1>
           <p className="text-muted-foreground mt-1">
-            Track all your sales and commissions
+            Track all sales from your AI assistant
           </p>
         </div>
 
@@ -108,16 +107,16 @@ const Sales = () => {
           <Card className="stat-card">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">
-                Total Commission
+                Total Sales
               </CardTitle>
-              <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-teal to-accent flex items-center justify-center">
-                <DollarSign className="w-5 h-5 text-white" />
+              <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-green-500 to-emerald-500 flex items-center justify-center">
+                <TrendingUp className="w-5 h-5 text-white" />
               </div>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold">${totalCommission.toFixed(2)}</div>
+              <div className="text-3xl font-bold">{sales.length}</div>
               <p className="text-xs text-muted-foreground mt-1">
-                Your earnings
+                Attributed to AI conversations
               </p>
             </CardContent>
           </Card>
@@ -143,8 +142,8 @@ const Sales = () => {
                     <TableHead>Date</TableHead>
                     <TableHead>Customer</TableHead>
                     <TableHead>Offer</TableHead>
+                    <TableHead>Source</TableHead>
                     <TableHead>Amount</TableHead>
-                    <TableHead>Commission</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -159,11 +158,13 @@ const Sales = () => {
                           {sale.offers?.name || "Unknown"}
                         </Badge>
                       </TableCell>
+                      <TableCell>
+                        <Badge variant="secondary" className="capitalize">
+                          {sale.source || "webhook"}
+                        </Badge>
+                      </TableCell>
                       <TableCell className="font-semibold">
                         ${Number(sale.amount).toFixed(2)}
-                      </TableCell>
-                      <TableCell className="font-semibold text-green-600">
-                        ${Number(sale.commission_due).toFixed(2)}
                       </TableCell>
                     </TableRow>
                   ))}
