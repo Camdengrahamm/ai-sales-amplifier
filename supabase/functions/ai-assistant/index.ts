@@ -31,6 +31,10 @@ type WebhookPayload = {
   lastMessage?: string;
   location_id?: string;
   locationId?: string;
+  // GoHighLevel specific fields
+  workflow?: unknown;
+  location?: unknown;
+  triggerData?: unknown;
   // Nested data support
   customData?: WebhookPayload;
   data?: WebhookPayload;
@@ -184,8 +188,37 @@ serve(async (req) => {
       rawBody.coachId,
     );
     
+    // Detect if this is a GoHighLevel request (has workflow, location, or triggerData)
+    const isGoHighLevelRequest = !!(rawBody.workflow || rawBody.location || rawBody.triggerData);
+    
     // Use valid UUID or fall back to default
     const coachId = isUuid(rawCoachId) ? rawCoachId! : DEFAULT_COACH_ID;
+    
+    // REJECT GoHighLevel requests that don't have a properly configured coach_id
+    // This prevents duplicate responses when both ManyChat and GHL are calling the endpoint
+    if (isGoHighLevelRequest && (!isUuid(rawCoachId) || rawCoachId === DEFAULT_COACH_ID)) {
+      console.warn('REJECTING GoHighLevel request - no valid coach_id configured:', {
+        received: rawCoachId,
+        isGHL: true,
+        reason: 'GHL requests must include a properly configured coach_id (not default)',
+      });
+      
+      return new Response(
+        JSON.stringify({
+          error: 'GoHighLevel webhook not configured with valid coach_id',
+          reply: '',
+          message: '',
+          question_count: 0,
+          tracking_link: null,
+          should_reply: false,
+          rejected: true,
+        }),
+        {
+          status: 200, // Return 200 so GHL doesn't retry
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      );
+    }
     
     if (!isUuid(rawCoachId)) {
       console.warn('Invalid or missing coach_id, using default:', {
