@@ -481,6 +481,7 @@ serve(async (req) => {
 
     // Step 7: Build system prompt - training content IS the behavior instructions
     // But we MUST enforce human-like, non-repetitive conversation
+    // NOTE: These rules are GENERIC - no business-specific content here!
     const humanBehaviorRules = `
 CRITICAL CONVERSATION RULES - FOLLOW THESE EXACTLY:
 1. Sound like a REAL PERSON texting, not a bot or salesperson
@@ -494,29 +495,22 @@ CRITICAL CONVERSATION RULES - FOLLOW THESE EXACTLY:
 9. Use contractions (I'm, you're, that's) like real people
 10. One thought per message - don't cram everything in
 
-KEY QUALIFYING QUESTIONS TO ASK NATURALLY:
-- "Are you using ManyChat or Go High Level for your DMs right now?"
-- "Are you mainly trying to book more calls or sell more from DMs?"
-- "How many DMs you getting per day roughly?"
-- "What's your main frustration with your current setup?"
-
 EXAMPLES OF BAD RESPONSES (NEVER DO THIS):
-❌ "We offer a trained AI agent that understands your content, speaks in your tone, qualifies leads, and sells."
-❌ "It installs a trained AI agent inside your DMs that understands your content..."
-❌ "Want a high level breakdown?"
 ❌ Long paragraphs explaining features
 ❌ Repeating the same pitch multiple times
+❌ Starting with "Great question!" or "I'd love to help you"
+❌ Listing benefits they didn't ask about
 
 EXAMPLES OF GOOD RESPONSES:
-✅ "Are you using ManyChat or Go High Level for your DMs right now?"
-✅ "Nice - are you mainly trying to book more calls or sell more from DMs?"
-✅ "Oh interesting. How many DMs you getting per day roughly?"
-✅ "Yeah that makes sense. What's your main frustration with it?"
+✅ Short, natural questions about their situation
+✅ Direct answers without corporate fluff
+✅ Following up on what THEY said, not pitching
 `;
 
     let systemPrompt = '';
     
     if (hasTrainingContent) {
+      // Training content defines the bot's personality, business knowledge, and behavior
       systemPrompt = `${trainingContent}
 
 ${humanBehaviorRules}
