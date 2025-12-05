@@ -446,25 +446,53 @@ serve(async (req) => {
       console.log('Training content preview (first 500 chars):', trainingContent.substring(0, 500));
     }
 
-    // Step 6: Build system prompt - training content IS the behavior instructions
+    // Step 6: Get conversation history from session
+    const conversationHistory = Array.isArray(session?.messages) ? session.messages : [];
+    console.log(`Conversation history: ${conversationHistory.length} messages`);
+
+    // Step 7: Build system prompt - training content IS the behavior instructions
+    // But we MUST enforce human-like, non-repetitive conversation
+    const humanBehaviorRules = `
+CRITICAL CONVERSATION RULES - FOLLOW THESE EXACTLY:
+1. Sound like a REAL PERSON texting, not a bot or salesperson
+2. Keep responses SHORT - 1-3 sentences max, like actual DMs
+3. NEVER repeat yourself - if you already explained something, don't say it again
+4. DON'T list features or benefits unless specifically asked
+5. Ask follow-up questions to understand their situation
+6. Be curious about THEM, not pushy about what you offer
+7. Mirror their energy - if they're casual, be casual
+8. NO corporate speak, NO marketing language, NO "I'd love to help you"
+9. Use contractions (I'm, you're, that's) like real people
+10. One thought per message - don't cram everything in
+
+EXAMPLES OF BAD RESPONSES (NEVER DO THIS):
+❌ "We offer a trained AI agent that understands your content, speaks in your tone, qualifies leads, and sells."
+❌ "It installs a trained AI agent inside your DMs that understands your content..."
+❌ Long paragraphs explaining features
+
+EXAMPLES OF GOOD RESPONSES:
+✅ "Yeah GHL's automations are pretty limited tbh. What's your main frustration with it?"
+✅ "Nice - what kind of stuff are you selling through DMs?"
+✅ "Oh interesting. How many DMs you getting per day roughly?"
+`;
+
     let systemPrompt = '';
     
     if (hasTrainingContent) {
-      // The uploaded content contains the bot's actual training/personality/behavior instructions
-      // Use it AS the system prompt, not just as context
       systemPrompt = `${trainingContent}
 
----
-CURRENT CONTEXT:
-- You are responding to a DM on behalf of ${coachDisplayName}
-- This is question #${newQuestionCount} from this user
-- Platform: Instagram DM
-- Keep responses DM-appropriate (short, direct, conversational)
-${intent === 'SALES_INTENT' ? '- This user seems interested in buying/enrolling' : ''}
-${intent === 'QUESTION' ? '- This user has a question - answer helpfully then guide toward next step' : ''}`;
+${humanBehaviorRules}
+
+CONTEXT:
+- Responding as ${coachDisplayName} on Instagram DM
+- Message #${newQuestionCount} from this person
+- Their name: ${contactName || 'unknown'}
+${intent === 'SALES_INTENT' ? '- They seem interested in buying' : ''}
+${intent === 'QUESTION' ? '- They have a question' : ''}
+${conversationHistory.length > 0 ? '- IMPORTANT: Review the conversation history below and DO NOT repeat anything you already said' : ''}`;
     } else if (isPremium && coach.system_prompt) {
       // Premium users with custom system prompt but no uploaded training
-      systemPrompt = coach.system_prompt;
+      systemPrompt = `${coach.system_prompt}\n\n${humanBehaviorRules}`;
     } else {
       // Fallback for coaches without training content
       const toneInstructions: Record<string, string> = {
@@ -480,19 +508,32 @@ ${intent === 'QUESTION' ? '- This user has a question - answer helpfully then gu
         conversational: 'Write like you\'re having a natural conversation',
       };
 
-      systemPrompt = `You are an AI assistant for ${coachDisplayName}. You help answer questions from potential customers via Instagram DM.
+      systemPrompt = `You are responding to DMs for ${coachDisplayName}. ${humanBehaviorRules}
 
-Guidelines:
-- ${isStandardOrHigher ? toneInstructions[coachTone] : 'Be helpful, friendly, and conversational'} — this is a DM, not an email
-- ${isStandardOrHigher ? styleInstructions[responseStyle] : 'Keep responses concise (2-4 sentences max unless more detail is needed)'}
-- Match the coach's tone and style
-- If you don't know something, be honest${isPremium && coach.escalation_email ? ` and mention they can email ${coach.escalation_email}` : ' and offer to connect them with the coach'}
-- Don't be overly salesy in early messages
-${isPremium && coach.brand_voice ? `- Brand voice: ${coach.brand_voice}` : ''}
-${intent === 'SALES_INTENT' ? '- The user seems interested in buying/enrolling — be helpful about next steps' : ''}`;
+- ${isStandardOrHigher ? toneInstructions[coachTone] : 'Be helpful and conversational'}
+- ${isStandardOrHigher ? styleInstructions[responseStyle] : 'Keep it brief'}
+${isPremium && coach.brand_voice ? `- Voice: ${coach.brand_voice}` : ''}`;
     }
 
-    // Step 7: Generate AI response
+    // Step 8: Build messages array with conversation history
+    const messagesForAI: { role: string; content: string }[] = [
+      { role: 'system', content: systemPrompt }
+    ];
+    
+    // Add conversation history so AI knows what was already said
+    for (const msg of conversationHistory.slice(-10)) { // Last 10 messages for context
+      if (msg && typeof msg === 'object' && 'role' in msg && 'content' in msg) {
+        messagesForAI.push({
+          role: msg.role === 'assistant' ? 'assistant' : 'user',
+          content: String(msg.content)
+        });
+      }
+    }
+    
+    // Add current message
+    messagesForAI.push({ role: 'user', content: message });
+
+    // Step 9: Generate AI response
     const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -501,10 +542,7 @@ ${intent === 'SALES_INTENT' ? '- The user seems interested in buying/enrolling �
       },
       body: JSON.stringify({
         model: 'google/gemini-2.5-flash',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: message }
-        ],
+        messages: messagesForAI,
       }),
     });
 
@@ -544,7 +582,19 @@ ${intent === 'SALES_INTENT' ? '- The user seems interested in buying/enrolling �
     const aiData = await aiResponse.json();
     let reply = aiData.choices?.[0]?.message?.content || 'Sorry, I couldn\'t generate a response. Please try again.';
 
-    // Step 8: Add CTA after configured questions threshold if offer exists
+    // Step 10: Save conversation to session history
+    const updatedHistory = [
+      ...conversationHistory,
+      { role: 'user', content: message },
+      { role: 'assistant', content: reply }
+    ].slice(-20); // Keep last 20 messages
+
+    await supabase
+      .from('dm_sessions')
+      .update({ messages: updatedHistory })
+      .eq('id', session!.id);
+
+    // Step 11: Add CTA after configured questions threshold if offer exists
     let trackingLink: string | null = null;
 
     if (newQuestionCount >= maxQuestionsBeforeCta) {
@@ -562,11 +612,11 @@ ${intent === 'SALES_INTENT' ? '- The user seems interested in buying/enrolling �
         const baseUrl = supabaseUrl.replace('/rest/v1', '').replace(/\/$/, '');
         trackingLink = `${baseUrl}/functions/v1/track/${offer.tracking_slug}`;
 
-        // Append CTA to reply
+        // Append CTA naturally - not robotic
         const ctaMessages = [
-          `\n\nI cover this in detail in my full program. Ready to dive in? ${trackingLink}`,
-          `\n\nWant the complete breakdown? Check out my program here: ${trackingLink}`,
-          `\n\nI go much deeper on this in my course. Here's the link if you're ready: ${trackingLink}`,
+          `\n\nbtw I break all this down in my program if you wanna check it out: ${trackingLink}`,
+          `\n\nI actually cover this in depth here: ${trackingLink}`,
+          `\n\nhere's the full breakdown if you're curious: ${trackingLink}`,
         ];
         const ctaIndex = newQuestionCount % ctaMessages.length;
         reply += ctaMessages[ctaIndex];
