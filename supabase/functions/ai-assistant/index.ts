@@ -294,12 +294,32 @@ serve(async (req) => {
     
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Step 1: Classify the message intent
-    const intent = await classifyMessage(message, lovableApiKey);
-    console.log('Message classified as:', intent);
+    // Check if there's an existing session with business intent already established
+    const { data: existingSession } = await supabase
+      .from('dm_sessions')
+      .select('question_count')
+      .eq('coach_id', coachId)
+      .eq('user_handle', userHandle)
+      .single();
 
-    // Handle low-effort or personal messages with neutral responses
-    if (intent === 'LOW_EFFORT' || intent === 'PERSONAL') {
+    const hasEstablishedBusinessIntent = existingSession && existingSession.question_count > 0;
+    
+    // Step 1: Classify the message intent - but skip classification if business intent already established
+    let intent: MessageIntent;
+    
+    if (hasEstablishedBusinessIntent) {
+      // Once business intent is established, treat all follow-up messages as QUESTION
+      // This prevents losing context when user answers qualifying questions
+      intent = 'QUESTION';
+      console.log('Business intent already established (question_count:', existingSession.question_count, '), treating as QUESTION');
+    } else {
+      // First message - classify normally
+      intent = await classifyMessage(message, lovableApiKey);
+      console.log('Message classified as:', intent);
+    }
+
+    // Handle low-effort or personal messages with neutral responses ONLY for first message
+    if (!hasEstablishedBusinessIntent && (intent === 'LOW_EFFORT' || intent === 'PERSONAL')) {
       const neutralReply = getNeutralResponse(intent, contactName);
       
       // Still track the session even for neutral responses
