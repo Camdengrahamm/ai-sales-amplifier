@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Mail, CheckCircle, XCircle } from "lucide-react";
+import { Plus, Mail, CheckCircle, XCircle, Copy } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 
@@ -110,6 +110,11 @@ const Coaches = () => {
       case "standard": return "secondary";
       default: return "outline";
     }
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast.success("Coach ID copied to clipboard");
   };
 
   return (
@@ -214,6 +219,7 @@ const Coaches = () => {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead>Coach ID</TableHead>
                     <TableHead>Name</TableHead>
                     <TableHead>Email</TableHead>
                     <TableHead>Brand</TableHead>
@@ -225,6 +231,21 @@ const Coaches = () => {
                 <TableBody>
                   {coaches.map((coach) => (
                     <TableRow key={coach.id}>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <code className="text-xs bg-muted px-2 py-1 rounded font-mono max-w-[120px] truncate">
+                            {coach.id}
+                          </code>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            onClick={() => copyToClipboard(coach.id)}
+                          >
+                            <Copy className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      </TableCell>
                       <TableCell className="font-medium">{coach.name}</TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
