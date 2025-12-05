@@ -55,25 +55,7 @@ const DEFAULT_COACH_ID = "6abbc19a-ef88-4359-9dde-169d247f696f";
 const isUuid = (value: string | undefined): boolean =>
   !!value && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 
-// Detect buying signals - indicates user is ready for CTA
-function hasBuyingSignal(message: string): boolean {
-  const buyingPatterns = [
-    // Direct interest
-    /\b(i'?m interested|interested|sign me up|i want (to|in)|count me in|let'?s do it|i'?m ready|ready to|take the next step)\b/i,
-    // Asking about purchase/enrollment
-    /\b(how (do i|can i|to) (buy|purchase|enroll|sign up|get started|start)|where (do i|can i) (buy|sign up))\b/i,
-    // Pricing questions - strong buying signal
-    /\b(how much|what'?s the (price|cost)|pricing|payment (plan|options)?)\b/i,
-    // Availability/timing
-    /\b(when (can i|do you) start|is (it|this) available|spots available|openings)\b/i,
-    // Affirmative enthusiasm
-    /\b(let'?s go|i'?m in|sounds perfect|this is (exactly )?what i need|sold|take my money)\b/i,
-    // Direct ask for link/booking
-    /\b(send (me )?the link|book a call|schedule|calendar|where do i sign up)\b/i,
-  ];
-  
-  return buyingPatterns.some(pattern => pattern.test(message));
-}
+// CTA threshold: send CTA after 4-5 messages to capture user preferences first
 
 // Classify the incoming message intent
 async function classifyMessage(message: string, apiKey: string): Promise<MessageIntent> {
@@ -499,7 +481,7 @@ serve(async (req) => {
     }
 
     const coachDisplayName = coach.brand_name || coach.name;
-    const maxQuestionsBeforeCta = coach.max_questions_before_cta || 3; // Default to 3 messages before CTA
+    const maxQuestionsBeforeCta = coach.max_questions_before_cta || 5; // Default to 5 messages before CTA (range 4-5)
     const coachTone = coach.tone || 'friendly';
     const responseStyle = coach.response_style || 'concise';
     const isPremium = coach.plan === 'premium';
@@ -772,26 +754,15 @@ ${isPremium && coach.brand_voice ? `- Voice: ${coach.brand_voice}` : ''}`;
       .update({ messages: updatedHistory })
       .eq('id', session!.id);
 
-    // Step 11: Add CTA based on smart sales logic
-    // - Send CTA if user shows buying signals (after 3+ messages minimum)
-    // - Send CTA after threshold (default 4-8 messages)
-    // - Don't push too early, let conversation develop naturally
+    // Step 11: Add CTA after 4-5 messages
+    // Wait for the conversation to develop - capture user preferences before pushing sale
     let trackingLink: string | null = null;
     
-    // Threshold between 4-8, default 5
-    const ctaThreshold = Math.min(8, Math.max(4, maxQuestionsBeforeCta || 5));
+    // Threshold between 4-5, default 5
+    const ctaThreshold = Math.min(5, Math.max(4, maxQuestionsBeforeCta || 5));
     
-    // Check for buying signals in the current message
-    const userShowsBuyingSignal = hasBuyingSignal(message);
-    
-    // Conditions to send CTA:
-    // 1. User shows buying signal AND we've had at least 3 messages (give conversation time to develop)
-    // 2. OR we've reached the threshold (between 4-8 messages)
-    const shouldSendCTA = (userShowsBuyingSignal && newQuestionCount >= 3) || (newQuestionCount >= ctaThreshold);
-    
-    if (userShowsBuyingSignal) {
-      console.log(`BUYING SIGNAL DETECTED in message: "${message.substring(0, 50)}..."`);
-    }
+    // Only send CTA after reaching threshold (4-5 messages)
+    const shouldSendCTA = newQuestionCount >= ctaThreshold;
 
     if (shouldSendCTA) {
       // Priority: coach's main_checkout_url > offer tracking link
@@ -816,35 +787,22 @@ ${isPremium && coach.brand_voice ? `- Voice: ${coach.brand_voice}` : ''}`;
       if (ctaLink) {
         trackingLink = ctaLink;
         
-        // Different CTAs based on whether user showed buying signal vs threshold reached
-        let ctaMessages: string[];
-        
-        if (userShowsBuyingSignal) {
-          // User showed interest - be more direct
-          ctaMessages = [
-            `\n\nLove the energy. Here's where you can take the next step: ${ctaLink}`,
-            `\n\nSounds like you're ready. Here's the link: ${ctaLink}`,
-            `\n\nPerfect - grab a spot here: ${ctaLink}`,
-          ];
-        } else {
-          // Threshold reached - softer push
-          ctaMessages = [
-            `\n\nFrom what you've shared, sounds like this could be a good fit. Here's where you can learn more: ${ctaLink}`,
-            `\n\nBased on what you're telling me, I think you'd get a lot out of this. Check it out here: ${ctaLink}`,
-            `\n\nIf you want to see how this could work for you, here's the link: ${ctaLink}`,
-          ];
-        }
+        // Closing CTA - no question, just push the meeting link
+        const ctaMessages = [
+          `\n\nFrom what I've heard, it sounds like there's potential to work together. Why don't we hop on a call and make sure this actually makes sense for both of us: ${ctaLink}`,
+          `\n\nBased on what you've shared, sounds like this could be a solid fit. Let's hop on a quick call to see if it makes sense: ${ctaLink}`,
+          `\n\nFrom everything you've told me, I think we could work well together. Let's jump on a call and figure out if this is right for you: ${ctaLink}`,
+        ];
         
         const ctaIndex = newQuestionCount % ctaMessages.length;
         reply += ctaMessages[ctaIndex];
         
-        const reason = userShowsBuyingSignal ? 'buying signal detected' : `threshold reached (${ctaThreshold})`;
-        console.log(`Added CTA at message #${newQuestionCount} (${reason}), link: ${ctaLink}`);
+        console.log(`Added CTA at message #${newQuestionCount} (threshold reached: ${ctaThreshold}), link: ${ctaLink}`);
       } else {
         console.log(`No CTA link available for coach ${coachId} - coach should set main_checkout_url or create an offer`);
       }
     } else {
-      console.log(`No CTA yet: message #${newQuestionCount}, threshold: ${ctaThreshold}, buying signal: ${userShowsBuyingSignal}`);
+      console.log(`No CTA yet: message #${newQuestionCount}, threshold: ${ctaThreshold}`);
     }
 
     // Step 9: Build and return response

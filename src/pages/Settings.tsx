@@ -25,7 +25,7 @@ const Settings = () => {
     response_style: "concise",
     brand_voice: "",
     escalation_email: "",
-    max_questions_before_cta: "3",
+    max_questions_before_cta: "5",
   });
 
   useEffect(() => {
@@ -66,7 +66,7 @@ const Settings = () => {
             response_style: coachData.response_style || "concise",
             brand_voice: coachData.brand_voice || "",
             escalation_email: coachData.escalation_email || "",
-            max_questions_before_cta: coachData.max_questions_before_cta?.toString() || "3",
+            max_questions_before_cta: coachData.max_questions_before_cta?.toString() || "5",
           });
         }
       }
@@ -244,13 +244,13 @@ const Settings = () => {
                     id="max_cta"
                     type="number"
                     min="4"
-                    max="8"
+                    max="5"
                     value={profile.max_questions_before_cta}
                     onChange={(e) => setProfile({ ...profile, max_questions_before_cta: e.target.value })}
                     disabled={isBasicPlan}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Send CTA after 4-8 messages (or when user shows strong buying interest after 3+ messages)
+                    Send CTA after 4-5 messages to capture user preferences first
                   </p>
                 </div>
 
