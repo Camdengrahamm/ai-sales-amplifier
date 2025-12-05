@@ -6,7 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Users, Search, Instagram, MessageSquare, Trash2, MessageCircle } from "lucide-react";
+import { MessageSquare, Search, Trash2, MessageCircle } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import ConversationDialog from "@/components/ConversationDialog";
@@ -21,114 +21,80 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
-interface Contact {
+interface DmSession {
   id: string;
   coach_id: string;
-  platform: string;
-  contact_id: string;
   user_handle: string;
-  first_name: string | null;
-  last_name: string | null;
-  email: string | null;
-  phone: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-interface DmSession {
+  question_count: number | null;
   messages: { role: string; content: string }[] | null;
   last_question_at: string | null;
+  created_at: string | null;
 }
 
-const Contacts = () => {
-  const [contacts, setContacts] = useState<Contact[]>([]);
+const Conversations = () => {
+  const [sessions, setSessions] = useState<DmSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
+  const [selectedSession, setSelectedSession] = useState<DmSession | null>(null);
   const [conversationOpen, setConversationOpen] = useState(false);
-  const [conversationMessages, setConversationMessages] = useState<{ role: string; content: string }[]>([]);
-  const [lastActivity, setLastActivity] = useState<string | null>(null);
-  const [deleteContact, setDeleteContact] = useState<Contact | null>(null);
+  const [deleteSession, setDeleteSession] = useState<DmSession | null>(null);
 
   useEffect(() => {
-    fetchContacts();
+    fetchSessions();
   }, []);
 
-  const fetchContacts = async () => {
+  const fetchSessions = async () => {
     try {
       const { data, error } = await supabase
-        .from("contacts")
+        .from("dm_sessions")
         .select("*")
-        .order("created_at", { ascending: false });
+        .order("last_question_at", { ascending: false });
 
       if (error) throw error;
-      setContacts(data || []);
+      setSessions((data as DmSession[]) || []);
     } catch (error) {
-      console.error("Error fetching contacts:", error);
+      console.error("Error fetching sessions:", error);
     } finally {
       setLoading(false);
     }
   };
 
-  // Filter out contacts with placeholder names (ManyChat custom fields that didn't resolve)
-  const filteredContacts = contacts
-    .filter(contact => !contact.user_handle.includes("{{") && !contact.user_handle.includes("cuf_"))
-    .filter(contact => 
-      contact.user_handle.toLowerCase().includes(searchQuery.toLowerCase())
+  // Filter out sessions with placeholder handles
+  const filteredSessions = sessions
+    .filter(session => !session.user_handle.includes("{{") && !session.user_handle.includes("cuf_"))
+    .filter(session => 
+      session.user_handle.toLowerCase().includes(searchQuery.toLowerCase())
     );
 
-  const getPlatformIcon = (platform: string) => {
-    switch (platform.toLowerCase()) {
-      case "instagram":
-        return <Instagram className="w-4 h-4" />;
-      default:
-        return <MessageSquare className="w-4 h-4" />;
-    }
-  };
-
-  const handleViewConversation = async (contact: Contact) => {
-    setSelectedContact(contact);
-    
-    // Fetch DM session for this contact
-    const { data: session, error } = await supabase
-      .from("dm_sessions")
-      .select("messages, last_question_at")
-      .eq("coach_id", contact.coach_id)
-      .eq("user_handle", contact.user_handle)
-      .single();
-
-    if (error && error.code !== "PGRST116") {
-      console.error("Error fetching conversation:", error);
-      toast.error("Failed to load conversation");
-      return;
-    }
-
-    const typedSession = session as DmSession | null;
-    const messages = typedSession?.messages || [];
-    setConversationMessages(Array.isArray(messages) ? messages : []);
-    setLastActivity(typedSession?.last_question_at || null);
+  const handleViewConversation = (session: DmSession) => {
+    setSelectedSession(session);
     setConversationOpen(true);
   };
 
-  const handleDeleteContact = async () => {
-    if (!deleteContact) return;
+  const handleDeleteSession = async () => {
+    if (!deleteSession) return;
 
     try {
       const { error } = await supabase
-        .from("contacts")
+        .from("dm_sessions")
         .delete()
-        .eq("id", deleteContact.id);
+        .eq("id", deleteSession.id);
 
       if (error) throw error;
 
-      setContacts(prev => prev.filter(c => c.id !== deleteContact.id));
-      toast.success("Contact deleted");
+      setSessions(prev => prev.filter(s => s.id !== deleteSession.id));
+      toast.success("Conversation deleted");
     } catch (error) {
-      console.error("Error deleting contact:", error);
-      toast.error("Failed to delete contact");
+      console.error("Error deleting session:", error);
+      toast.error("Failed to delete conversation");
     } finally {
-      setDeleteContact(null);
+      setDeleteSession(null);
     }
+  };
+
+  const getMessageCount = (session: DmSession) => {
+    if (!session.messages || !Array.isArray(session.messages)) return 0;
+    return session.messages.length;
   };
 
   return (
@@ -136,14 +102,14 @@ const Contacts = () => {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold">Contacts</h1>
+            <h1 className="text-3xl font-bold">DM Conversations</h1>
             <p className="text-muted-foreground mt-1">
-              View contacts from your DM conversations
+              View and manage your AI DM conversations
             </p>
           </div>
           <Badge variant="secondary" className="text-sm">
-            <Users className="w-4 h-4 mr-1" />
-            {filteredContacts.length} contacts
+            <MessageSquare className="w-4 h-4 mr-1" />
+            {filteredSessions.length} conversations
           </Badge>
         </div>
 
@@ -151,8 +117,8 @@ const Contacts = () => {
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle className="flex items-center gap-2">
-                <Users className="w-5 h-5" />
-                All Contacts
+                <MessageSquare className="w-5 h-5" />
+                All Conversations
               </CardTitle>
               <div className="relative w-64">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
@@ -170,49 +136,57 @@ const Contacts = () => {
               <div className="flex items-center justify-center py-8">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
               </div>
-            ) : filteredContacts.length === 0 ? (
+            ) : filteredSessions.length === 0 ? (
               <div className="text-center py-12 text-muted-foreground">
-                <Users className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                <p className="text-lg font-medium">No contacts yet</p>
-                <p className="text-sm">Contacts from DM conversations will appear here</p>
+                <MessageSquare className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                <p className="text-lg font-medium">No conversations yet</p>
+                <p className="text-sm">DM conversations will appear here</p>
               </div>
             ) : (
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Platform</TableHead>
                       <TableHead>Handle</TableHead>
-                      <TableHead>Added</TableHead>
+                      <TableHead>Messages</TableHead>
+                      <TableHead>Questions</TableHead>
+                      <TableHead>Last Active</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredContacts.map((contact) => (
-                      <TableRow key={contact.id}>
-                        <TableCell>
-                          <Badge variant="outline" className="flex items-center gap-1 w-fit">
-                            {getPlatformIcon(contact.platform)}
-                            {contact.platform}
-                          </Badge>
-                        </TableCell>
+                    {filteredSessions.map((session) => (
+                      <TableRow key={session.id}>
                         <TableCell>
                           <button
-                            onClick={() => handleViewConversation(contact)}
+                            onClick={() => handleViewConversation(session)}
                             className="font-medium text-primary hover:underline cursor-pointer flex items-center gap-1"
                           >
-                            @{contact.user_handle}
+                            @{session.user_handle}
                             <MessageCircle className="w-3 h-3" />
                           </button>
                         </TableCell>
+                        <TableCell>
+                          <Badge variant="secondary">
+                            {getMessageCount(session)} msgs
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">
+                            {session.question_count || 0} Qs
+                          </Badge>
+                        </TableCell>
                         <TableCell className="text-muted-foreground">
-                          {format(new Date(contact.created_at), "MMM d, yyyy")}
+                          {session.last_question_at 
+                            ? format(new Date(session.last_question_at), "MMM d, yyyy h:mm a")
+                            : "-"
+                          }
                         </TableCell>
                         <TableCell className="text-right">
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => setDeleteContact(contact)}
+                            onClick={() => setDeleteSession(session)}
                             className="text-destructive hover:text-destructive hover:bg-destructive/10"
                           >
                             <Trash2 className="w-4 h-4" />
@@ -228,28 +202,27 @@ const Contacts = () => {
         </Card>
       </div>
 
-      {selectedContact && (
+      {selectedSession && (
         <ConversationDialog
           open={conversationOpen}
           onOpenChange={setConversationOpen}
-          userHandle={selectedContact.user_handle}
-          messages={conversationMessages}
-          platform={selectedContact.platform}
-          lastActivity={lastActivity || undefined}
+          userHandle={selectedSession.user_handle}
+          messages={Array.isArray(selectedSession.messages) ? selectedSession.messages : []}
+          lastActivity={selectedSession.last_question_at || undefined}
         />
       )}
 
-      <AlertDialog open={!!deleteContact} onOpenChange={() => setDeleteContact(null)}>
+      <AlertDialog open={!!deleteSession} onOpenChange={() => setDeleteSession(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Contact</AlertDialogTitle>
+            <AlertDialogTitle>Delete Conversation</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete @{deleteContact?.user_handle}? This action cannot be undone.
+              Are you sure you want to delete the conversation with @{deleteSession?.user_handle}? This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteContact} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+            <AlertDialogAction onClick={handleDeleteSession} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -259,4 +232,4 @@ const Contacts = () => {
   );
 };
 
-export default Contacts;
+export default Conversations;
