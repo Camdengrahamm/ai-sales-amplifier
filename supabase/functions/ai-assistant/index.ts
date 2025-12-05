@@ -436,7 +436,7 @@ serve(async (req) => {
     // Step 4: Get coach info with customization settings
     const { data: coach, error: coachError } = await supabase
       .from('coaches')
-      .select('name, brand_name, plan, system_prompt, tone, response_style, brand_voice, escalation_email, max_questions_before_cta')
+      .select('name, brand_name, plan, system_prompt, tone, response_style, brand_voice, escalation_email, max_questions_before_cta, main_checkout_url')
       .eq('id', coachId)
       .single();
 
@@ -446,7 +446,7 @@ serve(async (req) => {
     }
 
     const coachDisplayName = coach.brand_name || coach.name;
-    const maxQuestionsBeforeCta = coach.max_questions_before_cta || 2;
+    const maxQuestionsBeforeCta = coach.max_questions_before_cta || 3; // Default to 3 messages before CTA
     const coachTone = coach.tone || 'friendly';
     const responseStyle = coach.response_style || 'concise';
     const isPremium = coach.plan === 'premium';
@@ -719,32 +719,48 @@ ${isPremium && coach.brand_voice ? `- Voice: ${coach.brand_voice}` : ''}`;
       .update({ messages: updatedHistory })
       .eq('id', session!.id);
 
-    // Step 11: Add CTA after configured questions threshold if offer exists
+    // Step 11: Add CTA after configured questions threshold
+    // Uses coach's main_checkout_url OR active offer tracking link
     let trackingLink: string | null = null;
+    
+    // Default threshold is 3 if not set
+    const ctaThreshold = maxQuestionsBeforeCta || 3;
 
-    if (newQuestionCount >= maxQuestionsBeforeCta) {
-      const { data: offers } = await supabase
-        .from('offers')
-        .select('*')
-        .eq('coach_id', coachId)
-        .eq('is_active', true)
-        .limit(1);
+    if (newQuestionCount >= ctaThreshold) {
+      // Priority: coach's main_checkout_url > offer tracking link
+      let ctaLink = coach.main_checkout_url;
+      
+      if (!ctaLink) {
+        // Fallback to offer tracking link if no main URL set
+        const { data: offers } = await supabase
+          .from('offers')
+          .select('*')
+          .eq('coach_id', coachId)
+          .eq('is_active', true)
+          .limit(1);
 
-      const offer = offers?.[0];
-
-      if (offer) {
-        // Build tracking link - derive base URL from SUPABASE_URL
-        const baseUrl = supabaseUrl.replace('/rest/v1', '').replace(/\/$/, '');
-        trackingLink = `${baseUrl}/functions/v1/track/${offer.tracking_slug}`;
-
-        // Append CTA naturally - push to book a call
+        const offer = offers?.[0];
+        if (offer) {
+          const baseUrl = supabaseUrl.replace('/rest/v1', '').replace(/\/$/, '');
+          ctaLink = `${baseUrl}/functions/v1/track/${offer.tracking_slug}`;
+        }
+      }
+      
+      if (ctaLink) {
+        trackingLink = ctaLink;
+        
+        // Generic CTAs that work for any business (booking, course, product, etc.)
         const ctaMessages = [
-          `\n\nFrom what you've shared, this could be a strong fit - but the quickest way to know for sure is to hop on a quick call. We can walk through your setup and see if it actually makes sense for your business.\n\nHere's my schedule: ${trackingLink}`,
-          `\n\nHonestly sounds like you'd be a good fit. Easiest way to figure out if this works for you is a quick call - I can look at your setup and tell you straight up.\n\nGrab a time here: ${trackingLink}`,
-          `\n\nBased on what you're telling me, this could work really well for you. Let's jump on a quick call and I'll show you exactly how it would work for your business.\n\nBook here: ${trackingLink}`,
+          `\n\nFrom what you've shared, sounds like this could be a good fit. Here's where you can take the next step: ${ctaLink}`,
+          `\n\nBased on what you're telling me, I think you'd get a lot out of this. Check it out here: ${ctaLink}`,
+          `\n\nHonestly, this sounds like exactly what you need. Here's the link if you want to move forward: ${ctaLink}`,
         ];
         const ctaIndex = newQuestionCount % ctaMessages.length;
         reply += ctaMessages[ctaIndex];
+        
+        console.log(`Added CTA at message #${newQuestionCount} (threshold: ${ctaThreshold}), link: ${ctaLink}`);
+      } else {
+        console.log(`No CTA link available for coach ${coachId} - coach should set main_checkout_url or create an offer`);
       }
     }
 
