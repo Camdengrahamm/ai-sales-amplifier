@@ -423,93 +423,69 @@ serve(async (req) => {
     const isPremium = coach.plan === 'premium';
     const isStandardOrHigher = coach.plan === 'standard' || coach.plan === 'premium';
 
-    // Step 5: Retrieve relevant embeddings using keyword search
-    // Extract keywords from the user's message for relevance matching
-    const searchTerms = message.toLowerCase()
-      .replace(/[^\w\s]/g, ' ')
-      .split(/\s+/)
-      .filter((word: string) => word.length > 3); // Filter short words
+    // Step 5: Retrieve ALL training content for this coach
+    // The uploaded content contains the actual bot training/behavior instructions
+    const { data: embeddings, error: embeddingsError } = await supabase
+      .from('embeddings')
+      .select('content_chunk')
+      .eq('coach_id', coachId)
+      .order('created_at', { ascending: true });
     
-    let embeddings: { content_chunk: string }[] | null = null;
-    
-    if (searchTerms.length > 0) {
-      // Build a text search query using OR logic
-      const searchPattern = searchTerms.slice(0, 5).join('%|%'); // Limit to 5 terms
-      
-      const { data, error: embeddingsError } = await supabase
-        .from('embeddings')
-        .select('content_chunk')
-        .eq('coach_id', coachId)
-        .or(searchTerms.slice(0, 3).map((term: string) => `content_chunk.ilike.%${term}%`).join(','))
-        .limit(5);
-      
-      if (embeddingsError) {
-        console.error('Error fetching embeddings with search:', embeddingsError);
-        // Fallback to basic fetch
-        const { data: fallbackData } = await supabase
-          .from('embeddings')
-          .select('content_chunk')
-          .eq('coach_id', coachId)
-          .limit(5);
-        embeddings = fallbackData;
-      } else {
-        embeddings = data;
-      }
-    } else {
-      // No meaningful search terms, get first chunks
-      const { data, error: embeddingsError } = await supabase
-        .from('embeddings')
-        .select('content_chunk')
-        .eq('coach_id', coachId)
-        .limit(5);
-      
-      if (embeddingsError) {
-        console.error('Error fetching embeddings:', embeddingsError);
-      }
-      embeddings = data;
+    if (embeddingsError) {
+      console.error('Error fetching embeddings:', embeddingsError);
     }
     
-    console.log(`Found ${embeddings?.length || 0} relevant content chunks`);
+    console.log(`Found ${embeddings?.length || 0} training content chunks for coach`);
 
-    const courseContext = embeddings?.map(e => e.content_chunk).join('\n\n') || '';
-    const hasContent = courseContext.length > 0;
+    // Combine all training content - this IS the bot's training
+    const trainingContent = embeddings?.map(e => e.content_chunk).join('\n\n') || '';
+    const hasTrainingContent = trainingContent.length > 0;
+    
+    console.log(`Training content length: ${trainingContent.length} chars`);
+    if (hasTrainingContent) {
+      console.log('Training content preview (first 500 chars):', trainingContent.substring(0, 500));
+    }
 
-    // Step 6: Build system prompt with customization
-    const toneInstructions: Record<string, string> = {
-      friendly: 'Be warm, approachable, and conversational',
-      professional: 'Be polished, articulate, and business-like',
-      casual: 'Be relaxed, informal, and use casual language',
-      motivational: 'Be energetic, encouraging, and inspiring',
-    };
-
-    const styleInstructions: Record<string, string> = {
-      concise: 'Keep responses brief (2-3 sentences max)',
-      detailed: 'Provide thorough, comprehensive answers',
-      conversational: 'Write like you\'re having a natural conversation',
-    };
-
-    // Build custom prompt - premium users get full customization
+    // Step 6: Build system prompt - training content IS the behavior instructions
     let systemPrompt = '';
     
-    if (isPremium && coach.system_prompt) {
-      // Premium users can override with custom system prompt
+    if (hasTrainingContent) {
+      // The uploaded content contains the bot's actual training/personality/behavior instructions
+      // Use it AS the system prompt, not just as context
+      systemPrompt = `${trainingContent}
+
+---
+CURRENT CONTEXT:
+- You are responding to a DM on behalf of ${coachDisplayName}
+- This is question #${newQuestionCount} from this user
+- Platform: Instagram DM
+- Keep responses DM-appropriate (short, direct, conversational)
+${intent === 'SALES_INTENT' ? '- This user seems interested in buying/enrolling' : ''}
+${intent === 'QUESTION' ? '- This user has a question - answer helpfully then guide toward next step' : ''}`;
+    } else if (isPremium && coach.system_prompt) {
+      // Premium users with custom system prompt but no uploaded training
       systemPrompt = coach.system_prompt;
-      if (hasContent) {
-        systemPrompt += `\n\nUse this knowledge base:\n${courseContext}`;
-      }
     } else {
-      // Standard prompt with tone/style customization for standard+ plans
+      // Fallback for coaches without training content
+      const toneInstructions: Record<string, string> = {
+        friendly: 'Be warm, approachable, and conversational',
+        professional: 'Be polished, articulate, and business-like',
+        casual: 'Be relaxed, informal, and use casual language',
+        motivational: 'Be energetic, encouraging, and inspiring',
+      };
+
+      const styleInstructions: Record<string, string> = {
+        concise: 'Keep responses brief (2-3 sentences max)',
+        detailed: 'Provide thorough, comprehensive answers',
+        conversational: 'Write like you\'re having a natural conversation',
+      };
+
       systemPrompt = `You are an AI assistant for ${coachDisplayName}. You help answer questions from potential customers via Instagram DM.
 
-${hasContent ? `Use the following course/program content as your knowledge base:
-
-${courseContext}
-
-` : ''}Guidelines:
+Guidelines:
 - ${isStandardOrHigher ? toneInstructions[coachTone] : 'Be helpful, friendly, and conversational'} — this is a DM, not an email
 - ${isStandardOrHigher ? styleInstructions[responseStyle] : 'Keep responses concise (2-4 sentences max unless more detail is needed)'}
 - Match the coach's tone and style
-- Never contradict the course content
 - If you don't know something, be honest${isPremium && coach.escalation_email ? ` and mention they can email ${coach.escalation_email}` : ' and offer to connect them with the coach'}
 - Don't be overly salesy in early messages
 ${isPremium && coach.brand_voice ? `- Brand voice: ${coach.brand_voice}` : ''}
