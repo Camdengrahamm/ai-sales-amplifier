@@ -243,14 +243,14 @@ const Settings = () => {
                   <Input
                     id="max_cta"
                     type="number"
-                    min="1"
-                    max="10"
+                    min="3"
+                    max="5"
                     value={profile.max_questions_before_cta}
                     onChange={(e) => setProfile({ ...profile, max_questions_before_cta: e.target.value })}
                     disabled={isBasicPlan}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Number of questions before AI adds a call-to-action
+                    Send CTA after 3-5 messages (or immediately when user shows buying interest)
                   </p>
                 </div>
 
@@ -348,28 +348,30 @@ const Settings = () => {
           </Card>
         )}
 
-        <Card>
-          <CardHeader>
-            <CardTitle>API Endpoints</CardTitle>
-            <CardDescription>
-              Integration endpoints for ManyChat and webhooks
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm">
-            <div>
-              <Label className="font-medium">AI Assistant Endpoint (ManyChat):</Label>
-              <code className="block mt-1 p-2 bg-muted rounded text-xs break-all">
-                {import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-assistant
-              </code>
-            </div>
-            <div>
-              <Label className="font-medium">Sales Webhook (Stripe/Kajabi/Thrivecart):</Label>
-              <code className="block mt-1 p-2 bg-muted rounded text-xs break-all">
-                {import.meta.env.VITE_SUPABASE_URL}/functions/v1/sales-webhook
-              </code>
-            </div>
-          </CardContent>
-        </Card>
+        {userRole === "admin" && (
+          <Card>
+            <CardHeader>
+              <CardTitle>API Endpoints</CardTitle>
+              <CardDescription>
+                Integration endpoints for ManyChat and webhooks
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              <div>
+                <Label className="font-medium">AI Assistant Endpoint (ManyChat):</Label>
+                <code className="block mt-1 p-2 bg-muted rounded text-xs break-all">
+                  {import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-assistant
+                </code>
+              </div>
+              <div>
+                <Label className="font-medium">Sales Webhook (Stripe/Kajabi/Thrivecart):</Label>
+                <code className="block mt-1 p-2 bg-muted rounded text-xs break-all">
+                  {import.meta.env.VITE_SUPABASE_URL}/functions/v1/sales-webhook
+                </code>
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </Layout>
   );
