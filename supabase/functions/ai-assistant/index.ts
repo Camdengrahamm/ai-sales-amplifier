@@ -53,14 +53,21 @@ const isUuid = (value: string | undefined): boolean =>
 
 // Classify the incoming message intent
 async function classifyMessage(message: string, apiKey: string): Promise<MessageIntent> {
+  // Pre-check for affirmative responses - these are engagement signals, not low-effort
+  const affirmativePatterns = /^(yes|yea|yeah|yep|yup|sure|ok|okay|definitely|absolutely|please|yes please|yea please|tell me|show me|i'm interested|interested|sounds good|let's do it|let's go|go ahead|for sure|100%|bet|down|i'm down)\.?!?$/i;
+  if (affirmativePatterns.test(message.trim())) {
+    console.log('Message matched affirmative pattern, classifying as QUESTION');
+    return 'QUESTION';
+  }
+  
   try {
     const classificationPrompt = `Classify this Instagram DM message into exactly one category. Reply with ONLY the category name, nothing else.
 
 Categories:
 - SALES_INTENT: User is asking about purchasing, pricing, enrollment, or showing buying intent
-- QUESTION: User is asking a genuine question about content, programs, or seeking information
+- QUESTION: User is asking a genuine question, seeking information, OR responding affirmatively to continue conversation (like "yes", "tell me more", "interested")
 - PERSONAL: Casual/personal message like "hey bro", "what's up", friendship chat, not business related
-- LOW_EFFORT: Emoji-only, single word reactions like "🔥", "lol", "nice", "love this", "😂😂"
+- LOW_EFFORT: ONLY emoji-only messages or meaningless reactions like "🔥", "lol", "😂😂". NOT affirmative responses.
 
 Message: "${message}"
 
