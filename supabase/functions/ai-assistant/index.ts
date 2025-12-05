@@ -740,21 +740,21 @@ ${isPremium && coach.brand_voice ? `- Voice: ${coach.brand_voice}` : ''}`;
       .eq('id', session!.id);
 
     // Step 11: Add CTA based on smart sales logic
-    // - Send CTA if user shows buying signals (at any point after msg 1)
-    // - Send CTA after threshold (default 3-5 messages)
-    // - Don't push too early (min 2 messages) but don't wait too long (max 5)
+    // - Send CTA if user shows buying signals (after 3+ messages minimum)
+    // - Send CTA after threshold (default 4-8 messages)
+    // - Don't push too early, let conversation develop naturally
     let trackingLink: string | null = null;
     
-    // Threshold between 3-5, default 3
-    const ctaThreshold = Math.min(5, Math.max(3, maxQuestionsBeforeCta || 3));
+    // Threshold between 4-8, default 5
+    const ctaThreshold = Math.min(8, Math.max(4, maxQuestionsBeforeCta || 5));
     
     // Check for buying signals in the current message
     const userShowsBuyingSignal = hasBuyingSignal(message);
     
     // Conditions to send CTA:
-    // 1. User shows buying signal AND we've had at least 2 messages (don't push immediately on first interest)
-    // 2. OR we've reached the threshold (between 3-5 messages)
-    const shouldSendCTA = (userShowsBuyingSignal && newQuestionCount >= 2) || (newQuestionCount >= ctaThreshold);
+    // 1. User shows buying signal AND we've had at least 3 messages (give conversation time to develop)
+    // 2. OR we've reached the threshold (between 4-8 messages)
+    const shouldSendCTA = (userShowsBuyingSignal && newQuestionCount >= 3) || (newQuestionCount >= ctaThreshold);
     
     if (userShowsBuyingSignal) {
       console.log(`BUYING SIGNAL DETECTED in message: "${message.substring(0, 50)}..."`);

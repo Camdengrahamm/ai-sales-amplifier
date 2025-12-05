@@ -243,14 +243,14 @@ const Settings = () => {
                   <Input
                     id="max_cta"
                     type="number"
-                    min="3"
-                    max="5"
+                    min="4"
+                    max="8"
                     value={profile.max_questions_before_cta}
                     onChange={(e) => setProfile({ ...profile, max_questions_before_cta: e.target.value })}
                     disabled={isBasicPlan}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Send CTA after 3-5 messages (or immediately when user shows buying interest)
+                    Send CTA after 4-8 messages (or when user shows strong buying interest after 3+ messages)
                   </p>
                 </div>
 
