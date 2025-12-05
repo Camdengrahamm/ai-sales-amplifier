@@ -97,10 +97,12 @@ Category:`;
     return 'QUESTION';
   }
 }
-
 // Generate a short neutral response for personal/low-effort messages
+// Only use name if it looks like a real name (not a numeric ID)
 function getNeutralResponse(intent: MessageIntent, contactName?: string): string {
-  const name = contactName ? contactName.split(' ')[0] : '';
+  // Don't use name if it looks like an ID (all numbers, or contains "Unknown")
+  const isRealName = contactName && !/^\d+$/.test(contactName) && !contactName.includes('Unknown');
+  const firstName = isRealName ? contactName.split(' ')[0] : '';
   
   if (intent === 'LOW_EFFORT') {
     const responses = [
@@ -112,8 +114,8 @@ function getNeutralResponse(intent: MessageIntent, contactName?: string): string
   }
   
   if (intent === 'PERSONAL') {
-    const greeting = name ? `Hey ${name}! ` : 'Hey! ';
-    return `${greeting}Thanks for reaching out! If you have any questions about the program, I'm here to help. 🙌`;
+    const greeting = firstName ? `Hey ${firstName}! ` : 'Hey! ';
+    return `${greeting}What's up?`;
   }
   
   return '';
@@ -417,7 +419,7 @@ serve(async (req) => {
     }
 
     const coachDisplayName = coach.brand_name || coach.name;
-    const maxQuestionsBeforeCta = coach.max_questions_before_cta || 3;
+    const maxQuestionsBeforeCta = coach.max_questions_before_cta || 2;
     const coachTone = coach.tone || 'friendly';
     const responseStyle = coach.response_style || 'concise';
     const isPremium = coach.plan === 'premium';
@@ -612,11 +614,11 @@ ${isPremium && coach.brand_voice ? `- Voice: ${coach.brand_voice}` : ''}`;
         const baseUrl = supabaseUrl.replace('/rest/v1', '').replace(/\/$/, '');
         trackingLink = `${baseUrl}/functions/v1/track/${offer.tracking_slug}`;
 
-        // Append CTA naturally - not robotic
+        // Append CTA naturally - push to book a call
         const ctaMessages = [
-          `\n\nbtw I break all this down in my program if you wanna check it out: ${trackingLink}`,
-          `\n\nI actually cover this in depth here: ${trackingLink}`,
-          `\n\nhere's the full breakdown if you're curious: ${trackingLink}`,
+          `\n\nFrom what you've shared, this could be a strong fit - but the quickest way to know for sure is to hop on a quick call. We can walk through your setup and see if it actually makes sense for your business.\n\nHere's my schedule: ${trackingLink}`,
+          `\n\nHonestly sounds like you'd be a good fit. Easiest way to figure out if this works for you is a quick call - I can look at your setup and tell you straight up.\n\nGrab a time here: ${trackingLink}`,
+          `\n\nBased on what you're telling me, this could work really well for you. Let's jump on a quick call and I'll show you exactly how it would work for your business.\n\nBook here: ${trackingLink}`,
         ];
         const ctaIndex = newQuestionCount % ctaMessages.length;
         reply += ctaMessages[ctaIndex];
