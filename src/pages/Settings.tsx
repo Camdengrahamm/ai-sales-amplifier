@@ -176,13 +176,16 @@ const Settings = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="checkout">Main Checkout URL</Label>
+                  <Label htmlFor="checkout">CTA Link (Booking / Course / Checkout)</Label>
                   <Input
                     id="checkout"
                     value={profile.main_checkout_url}
                     onChange={(e) => setProfile({ ...profile, main_checkout_url: e.target.value })}
-                    placeholder="https://checkout.example.com"
+                    placeholder="https://calendly.com/your-link or https://your-course.com/checkout"
                   />
+                  <p className="text-xs text-muted-foreground">
+                    This link is sent to prospects after {profile.max_questions_before_cta || 3} messages. Use your booking calendar, course checkout, or any conversion URL.
+                  </p>
                 </div>
               </CardContent>
             </Card>
