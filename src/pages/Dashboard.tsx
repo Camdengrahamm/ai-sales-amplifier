@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { TrendingUp, MousePointerClick, DollarSign, Users, CheckCircle, Upload, FileText, Loader2, MessageSquare } from "lucide-react";
+import { TrendingUp, MousePointerClick, DollarSign, Users, CheckCircle, Upload, FileText, Loader2, MessageSquare, RotateCcw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import Layout from "@/components/Layout";
 import { Button } from "@/components/ui/button";
@@ -368,6 +368,7 @@ const Dashboard = () => {
                       <TableHead>Messages</TableHead>
                       <TableHead>Started</TableHead>
                       <TableHead>Last Activity</TableHead>
+                      {userRole === "admin" && <TableHead>Actions</TableHead>}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -386,6 +387,39 @@ const Dashboard = () => {
                             : "-"
                           }
                         </TableCell>
+                        {userRole === "admin" && (
+                          <TableCell>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={async () => {
+                                try {
+                                  const { error } = await supabase
+                                    .from("dm_sessions")
+                                    .update({ question_count: 0, messages: [] })
+                                    .eq("id", session.id);
+                                  
+                                  if (error) throw error;
+                                  
+                                  // Update local state
+                                  setDmSessions(prev => 
+                                    prev.map(s => s.id === session.id 
+                                      ? { ...s, question_count: 0, messages: [] } 
+                                      : s
+                                    )
+                                  );
+                                  toast.success(`Reset message count for @${session.user_handle}`);
+                                } catch (error: any) {
+                                  console.error("Error resetting session:", error);
+                                  toast.error("Failed to reset session");
+                                }
+                              }}
+                            >
+                              <RotateCcw className="w-3 h-3 mr-1" />
+                              Reset
+                            </Button>
+                          </TableCell>
+                        )}
                       </TableRow>
                     ))}
                   </TableBody>
